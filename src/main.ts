@@ -19,13 +19,7 @@ import {
 import { ArchiveScene } from "./scene";
 import { ContentTransition, SurfaceTransition } from "./ui-transitions";
 import { wrap, type ArchiveNavigation } from "./archive-loop";
-import {
-  records,
-  categories,
-  archiveColumns,
-  columnFiles,
-  fileLocation,
-} from "./data";
+import { records, archiveColumns, columnFiles, fileLocation } from "./data";
 import {
   createMotionPreferences,
   motionEnabled,
@@ -33,8 +27,7 @@ import {
   type MotionKey,
 } from "./motion-preferences";
 import { paintTheme } from "./theme-ui";
-import { enableGamepad, isGamepadEvent, onInputDevice } from "./gamepad";
-import { brandHeading } from "./brand";
+import { enableGamepad, onInputDevice } from "./gamepad";
 
 const $ = <T extends HTMLElement = HTMLElement>(selector: string) =>
   document.querySelector<T>(selector)!;
@@ -42,11 +35,6 @@ const $ = <T extends HTMLElement = HTMLElement>(selector: string) =>
 $("#stage").innerHTML = `
   <div id="three-scene" class="three-scene"></div>
   <div class="scene-atmosphere archive-atmosphere"></div>
-  <header class="brand">${brandHeading}</header>
-  <nav class="system-nav" aria-label="系统导航">
-    <button data-action="search"><span class="nav-glyph">⌕</span> ARCHIVE INDEX <span class="key">/</span></button>
-    <button data-action="saved" aria-label="查看收藏档案" title="收藏档案">＋ SAVED <span id="saved-count">00</span></button>
-  </nav>
   <svg id="inspection-marks" viewBox="0 0 1920 1080" aria-hidden="true"><path id="inspection-lines"/><g id="inspection-corners"></g><circle id="inspection-point" r="1.8"/></svg>
   <div id="inspection-text" aria-hidden="true">CONFIDENTIALITY:<strong>GENERAL BUSINESS USE</strong></div>
   <section id="archive-ui" class="archive-ui" aria-label="档案选择">
@@ -64,7 +52,7 @@ $("#stage").innerHTML = `
   </section>
   <footer class="system-footer"><span><i class="status-light"></i> SESSION AUTHORIZED</span><span>JOYCE MOORE <i>／</i> <span id="clock">00:00:00</span></span><a href="${assetUrl("fonts/MiSans-license.pdf")}" target="_blank" rel="noopener" aria-label="MiSans 字体许可">MiSans · 字体许可 ↗</a></footer>
   <div id="pwa-update-notice" class="pwa-update-notice" role="status" hidden><span>新版本已就绪</span><button data-pwa-action="update">更新并重启 ↻</button></div>
-  <div id="modal-root"></div><div id="toast" class="toast" role="status"></div>
+  <div id="toast" class="toast" role="status"></div>
   <div id="loading" class="loading" role="status"><span>正在加载资料库…</span></div>
 `;
 
@@ -72,13 +60,9 @@ type Mode = "archive" | "detail";
 let mode: Mode = "archive",
   selected = 0,
   ready = false;
-let modal: "search" | "saved" | null = null,
-  searchQuery = "",
-  filter = "全部档案";
 let activeTab = "overview";
 $("#stage").dataset.mode = "archive";
 let toastTimer: ReturnType<typeof setTimeout>;
-let previousFocus: HTMLElement | null = null;
 const detailTransition = new SurfaceTransition(
   $("#detail-ui"),
   undefined,
@@ -86,19 +70,7 @@ const detailTransition = new SurfaceTransition(
   180,
 );
 const tabTransition = new ContentTransition();
-let modalTransition: SurfaceTransition | undefined;
-let modalClosing = false;
-let modalSiblings: { node: HTMLElement; inert: boolean }[] = [];
 let pendingDetailFocus = false;
-let bookmarkFeedback: Animation | undefined;
-function readLocal<T>(key: string, fallback: T): T {
-  try {
-    return JSON.parse(localStorage.getItem(key) ?? "null") ?? fallback;
-  } catch {
-    return fallback;
-  }
-}
-const saved = new Set<string>(readLocal<string[]>("rhine-saved", []));
 // Presentation configuration is fixed; legacy browser settings cannot restore
 // sound, the opening, or the full rendering pipeline.
 const motion = createMotionPreferences(
@@ -220,17 +192,6 @@ function fit() {
   stage.dataset.layout = kind;
   stage.dataset.touch = String(coarse);
   stage.style.setProperty("--stage-scale", String(scale));
-  // The software keyboard resizes dialogs without recomposing the 3D scene.
-  const visible = window.visualViewport;
-  const stageTop = (viewport.clientHeight - height * scale) / 2;
-  stage.style.setProperty(
-    "--modal-top",
-    `${Math.max(0, (visible?.offsetTop ?? 0) - stageTop) / scale}px`,
-  );
-  stage.style.setProperty(
-    "--modal-height",
-    `${Math.min(height, (visible?.height ?? viewport.clientHeight) / scale)}px`,
-  );
   $("#viewport").style.setProperty("--scale", String(scale));
   const marks = document.querySelector("#inspection-marks");
   marks?.setAttribute("viewBox", `0 0 ${width} ${height}`);
@@ -284,19 +245,17 @@ function setMode(next: Mode) {
   mode = next;
   $("#stage").dataset.mode = next;
   if (previousMode !== next) fit();
-  $("#archive-ui").inert = next !== "archive" || Boolean(modal);
+  $("#archive-ui").inert = next !== "archive";
   $("#archive-ui").setAttribute("aria-hidden", String(next !== "archive"));
-  $(".system-nav").inert = Boolean(modal);
-  $(".system-footer").inert = Boolean(modal);
   if (next === "detail" && previousMode !== "detail") {
     detailTransition.show(!motionActive("surfaceTransitions"));
   } else if (previousMode === "detail" && next !== "detail") {
     pendingDetailFocus = false;
     tabTransition.cancel();
     detailTransition.hide(!motionActive("surfaceTransitions"));
-    if (!modal) $(".read-file").focus({ preventScroll: true });
+    $(".read-file").focus({ preventScroll: true });
   }
-  $("#detail-ui").inert = next !== "detail" || Boolean(modal);
+  $("#detail-ui").inert = next !== "detail";
   scene?.setMode(next);
   if (next === "detail" && previousMode !== "detail") {
     renderDetail();
@@ -383,37 +342,10 @@ function updateSelection(navigation?: ArchiveNavigation) {
     button.classList.toggle("selected", index === selected);
     button.setAttribute("aria-pressed", String(index === selected));
   });
-  $("#saved-count").textContent = String(saved.size).padStart(2, "0");
 }
 function openFile() {
   if (!ready) return;
-  closeModal(() => {
-    setMode("detail");
-  });
-}
-function toggleSaved() {
-  const id = records[selected].id;
-  if (saved.has(id)) saved.delete(id);
-  else saved.add(id);
-  try {
-    localStorage.setItem("rhine-saved", JSON.stringify([...saved]));
-  } catch {}
-  $("#saved-count").textContent = String(saved.size).padStart(2, "0");
-  const button = $<HTMLButtonElement>('[data-action="bookmark"]');
-  const added = saved.has(id);
-  button.firstChild!.textContent = added
-    ? "− REMOVE FROM SAVED"
-    : "＋ SAVE ARCHIVE";
-  button.querySelector("span")!.textContent = added ? "已收藏" : "收藏档案";
-  button.setAttribute("aria-pressed", String(added));
-  bookmarkFeedback?.cancel();
-  if (motionActive("surfaceTransitions"))
-    bookmarkFeedback = button.animate(
-      [{ backgroundColor: "#67634c" }, { backgroundColor: "#252820" }],
-      { duration: 220, easing: "ease-out" },
-    );
-
-  notify(saved.has(id) ? "档案已加入收藏" : "已取消收藏");
+  setMode("detail");
 }
 function renderDetail() {
   tabTransition.cancel();
@@ -426,13 +358,9 @@ function renderDetail() {
   <dl class="metadata"><div><dt>DEPARTMENT / 科室</dt><dd>${escapeHtml(r.department)}</dd></div><div><dt>COLLECTION / 编目范围</dt><dd>${escapeHtml(r.date)}</dd></div><div><dt>RELATED / 相关人物</dt><dd>${escapeHtml(r.lead)}</dd></div><div><dt>STATUS / 状态</dt><dd><i></i>${r.clearance === "RESTRICTED" ? "目录访问" : "已归档 · 可读取"}</dd></div></dl>
   <div class="detail-tabs" role="tablist"><button id="tab-overview" class="active" role="tab" aria-controls="tab-panel" aria-selected="true" data-tab="overview">01 <span>概述</span></button><button id="tab-notes" role="tab" aria-controls="tab-panel" aria-selected="false" data-tab="notes">02 <span>研究记录</span></button><button id="tab-history" role="tab" aria-controls="tab-panel" aria-selected="false" data-tab="history">03 <span>访问日志</span></button><i class="tab-indicator" aria-hidden="true"></i></div>
   <div id="tab-panel" class="tab-panel" role="tabpanel">${overview()}</div>
-  <div class="detail-actions"><button class="solid-button" data-action="bookmark">${saved.has(r.id) ? "− REMOVE FROM SAVED" : "＋ SAVE ARCHIVE"}<span>${saved.has(r.id) ? "已收藏" : "收藏档案"}</span></button><a class="export-button" href="${assetUrl(`archives/RHINE-LAB-${r.id}.txt`)}" download="RHINE-LAB-${r.id}.txt" aria-label="导出 ${r.id} 档案">EXPORT <span>↓</span></a></div>
+  <div class="detail-actions"><a class="export-button" href="${assetUrl(`archives/RHINE-LAB-${r.id}.txt`)}" download="RHINE-LAB-${r.id}.txt" aria-label="导出 ${r.id} 档案">EXPORT <span>↓</span></a></div>
   <div class="detail-footnote"><a href="${escapeHtml(r.source)}" target="_blank" rel="noopener">设定参考 ↗</a><span>${String(selected + 1).padStart(3, "0")} / ${String(records.length).padStart(3, "0")}</span></div>`;
   $("#detail-content").setAttribute("tabindex", "-1");
-  $('[data-action="bookmark"]').setAttribute(
-    "aria-pressed",
-    String(saved.has(r.id)),
-  );
   documentDecryption.reset(
     $("#detail-content"),
     !motionActive("documentReveal") ||
@@ -488,121 +416,12 @@ function notify(message: string) {
   toastTimer = setTimeout(() => $("#toast").classList.remove("visible"), 2600);
 }
 
-function openModal(kind: NonNullable<typeof modal>) {
-  if (!ready) return;
-  if (!modal) {
-    previousFocus = document.activeElement as HTMLElement;
-    modalSiblings = [...$("#stage").children]
-      .filter(
-        (node): node is HTMLElement =>
-          node instanceof HTMLElement && node.id !== "modal-root",
-      )
-      .map((node) => ({ node, inert: node.inert }));
-    modalSiblings.forEach(({ node }) => (node.inert = true));
-  }
-  modalClosing = false;
-  modal = kind;
-  searchQuery = "";
-  filter = "全部档案";
-
-  renderModal();
-}
-function closeModal(afterClose?: () => void) {
-  if (!modal) {
-    afterClose?.();
-    return;
-  }
-  if (modalClosing) return;
-  modalClosing = true;
-
-  modalTransition!.hide(!motionActive("surfaceTransitions"), () => {
-    modal = null;
-    modalClosing = false;
-    $("#modal-root").replaceChildren();
-    modalTransition = undefined;
-    modalSiblings.forEach(({ node, inert }) => (node.inert = inert));
-    modalSiblings = [];
-    $("#archive-ui").inert = mode !== "archive";
-    $("#detail-ui").inert = mode !== "detail";
-    previousFocus?.focus({ preventScroll: true });
-    afterClose?.();
-  });
-}
-function renderModal() {
-  if (!modal) return;
-  modalTransition?.dispose();
-  $("#modal-root").innerHTML =
-    `<div class="modal-backdrop"><section class="terminal-modal " role="dialog" aria-modal="true" aria-label="${modal === "saved" ? "收藏档案" : "档案检索"}"><div class="modal-top"><span>RHINE LAB / ARCHIVE DIRECTORY</span><button data-action="close-modal" aria-label="关闭窗口">CLOSE <span>×</span></button></div><h2>${modal === "saved" ? "SAVED ARCHIVES" : "ARCHIVE INDEX"}<small>${modal === "saved" ? "收藏档案" : "内部档案检索"}</small></h2><div class="search-field"><span>⌕</span><input id="archive-search" type="search" autocomplete="off" placeholder="输入档案编号、名称或科室" aria-label="检索档案"/><span class="key">ESC</span></div><div class="category-filters">${categories.map((c, i) => `<button data-filter="${escapeHtml(c)}" class="${i === 0 ? "active" : ""}">${escapeHtml(c)}</button>`).join("")}</div><div class="result-header"><span>FILE / 档案</span><span>DEPARTMENT / 科室</span><span>ACCESS</span></div><div id="search-results" class="search-results"></div><div class="modal-bottom"><span id="result-count"></span><span>INTERNAL DATABASE <i>●</i> CONNECTED</span></div></section></div>`;
-  const backdrop = $(".modal-backdrop");
-  backdrop.hidden = true;
-  modalTransition = new SurfaceTransition(backdrop, $(".terminal-modal"));
-  modalTransition.show(!motionActive("surfaceTransitions"));
-  renderResults();
-  requestAnimationFrame(() => {
-    if (backdrop.isConnected && !modalClosing) $("#archive-search").focus();
-  });
-  $("#modal-root")
-    .querySelector(".modal-backdrop")
-    ?.addEventListener("click", (e) => {
-      if (e.target === e.currentTarget) closeModal();
-    });
-}
-function renderResults() {
-  const results = records
-    .map((r, i) => ({ r, i }))
-    .filter(
-      ({ r }) =>
-        (modal !== "saved" || saved.has(r.id)) &&
-        (filter === "全部档案" || r.category === filter) &&
-        `${r.id} ${r.title} ${r.en} ${r.department} ${r.lead}`
-          .toLowerCase()
-          .includes(searchQuery.toLowerCase()),
-    );
-  $("#search-results").innerHTML = results.length
-    ? results
-        .map(
-          ({ r, i }) =>
-            `<button class="result-row" data-result="${i}"><span class="result-name"><b>${r.id}</b><span>${escapeHtml(r.title)}<small>${escapeHtml(r.en)}</small></span>${saved.has(r.id) ? "<i>＋</i>" : ""}</span><span>${escapeHtml(r.department)}</span><span>${r.clearance === "RESTRICTED" ? "CATALOG ONLY" : "AUTHORIZED"} <i>↗</i></span></button>`,
-        )
-        .join("")
-    : `<div class="empty-results"><span>∅</span><strong>${modal === "saved" && !searchQuery ? "尚无收藏档案" : "没有匹配的档案"}</strong><p>${modal === "saved" && !searchQuery ? "读取档案时，选择 SAVE ARCHIVE 将其保存在此处。" : "尝试其他名称、档案编号，或切换科室分类。"}</p><button data-action="reset-search">${modal === "saved" ? "查看全部档案 →" : "重置检索 →"}</button></div>`;
-  $("#result-count").textContent =
-    `${String(results.length).padStart(2, "0")} RECORDS FOUND`;
-}
-document.addEventListener("input", (e) => {
-  if ((e.target as HTMLElement).id === "archive-search") {
-    searchQuery = (e.target as HTMLInputElement).value;
-    renderResults();
-  }
-});
 document.addEventListener("click", (e) => {
   if (!started) return;
-  if (modalClosing) return;
   const el = (e.target as Element).closest<HTMLElement>("button");
   if (!el) return;
   if (el.dataset.select) {
     select(Number(el.dataset.select));
-    return;
-  }
-  if (el.dataset.result) {
-    const index = Number(el.dataset.result);
-    closeModal(() => {
-      select(index);
-      openFile();
-    });
-    return;
-  }
-  if (el.dataset.filter) {
-    filter = el.dataset.filter;
-    document
-      .querySelectorAll("[data-filter]")
-      .forEach((b) =>
-        b.classList.toggle(
-          "active",
-          (b as HTMLElement).dataset.filter === filter,
-        ),
-      );
-    renderResults();
     return;
   }
   if (el.dataset.tab) {
@@ -618,57 +437,17 @@ document.addEventListener("click", (e) => {
   if (action === "back") {
     setMode("archive");
   }
-  if (action === "search" || action === "saved") {
-    el.focus({ preventScroll: true });
-    openModal(action);
-  }
-  if (action === "close-modal") closeModal();
-  if (action === "bookmark") toggleSaved();
-  if (action === "reset-search") {
-    modal = "search";
-    searchQuery = "";
-    filter = "全部档案";
-    renderModal();
-  }
 });
 document.addEventListener("keydown", (e) => {
   if (!started) return;
-  if (modalClosing) {
-    e.preventDefault();
-    return;
-  }
   const typing = e.target instanceof HTMLInputElement;
   if (e.key === "Escape") {
-    if (modal) closeModal();
-    else if (mode === "detail") {
+    if (mode === "detail") {
       setMode("archive");
     }
     return;
   }
-  if (modal && e.key === "Tab") {
-    const focusables = [
-      ...$("#modal-root").querySelectorAll<HTMLElement>(
-        'a[href],button:not(:disabled),input:not(:disabled),select:not(:disabled),summary,[tabindex="0"]',
-      ),
-    ];
-    const visible = focusables.filter(
-      (el) =>
-        el.tabIndex >= 0 &&
-        !el.matches(":disabled") &&
-        el.getClientRects().length > 0,
-    );
-    const first = visible[0],
-      last = visible.at(-1);
-    if (e.shiftKey && document.activeElement === first) {
-      e.preventDefault();
-      last?.focus();
-    } else if (!e.shiftKey && document.activeElement === last) {
-      e.preventDefault();
-      first?.focus();
-    }
-    return;
-  }
-  if (typing || modal || !ready) return;
+  if (typing || !ready) return;
   if (
     (e.target as HTMLElement).dataset.tab &&
     ["ArrowLeft", "ArrowRight"].includes(e.key)
@@ -680,14 +459,6 @@ document.addEventListener("keydown", (e) => {
     );
     $<HTMLButtonElement>(`[data-tab="${activeTab}"]`).focus();
     return;
-  }
-  if (e.key === "/") {
-    e.preventDefault();
-    openModal("search");
-  }
-  if (e.key === "Home" && isGamepadEvent(e) && mode === "archive" && !modal) {
-    e.preventDefault();
-    openModal("saved");
   }
   if (e.key === "ArrowLeft") {
     e.preventDefault();
@@ -744,7 +515,7 @@ function frame(ms: number) {
     $("#detail-content").style.translate =
       `0 ${(1 - scene.detailVisibility) * 18}px`;
     $("#detail-content").inert = scene.detailVisibility < 0.1;
-    if (pendingDetailFocus && scene.detailVisibility >= 0.1 && !modal) {
+    if (pendingDetailFocus && scene.detailVisibility >= 0.1) {
       $("#detail-content").focus({ preventScroll: true });
       pendingDetailFocus = false;
     }
@@ -780,11 +551,11 @@ function frame(ms: number) {
 function bindScene(scene: ArchiveScene, cell?: { lane: number; row: number }) {
   scene.select(selected, cell ? { cell } : undefined);
   scene.onSelect = (i, cell) => {
-    if (mode !== "archive" || modal) return;
+    if (mode !== "archive") return;
     select(i, cell ? { cell } : undefined);
   };
   scene.onNavigate = (axis, direction) => {
-    if (mode !== "archive" || modal) return;
+    if (mode !== "archive") return;
     if (axis === "lane") stepColumn(direction);
     else stepFile(direction);
   };
@@ -828,10 +599,6 @@ async function start() {
       document.fonts.load(
         "400 20px MiSans",
         "内部资料档案编号保密级别商业区选择档案：0123456789 JOYCE MOORE",
-      ),
-      document.fonts.load(
-        "600 20px MiSans",
-        "SYNTHESIZE INFORMATION ANALYSIS OS",
       ),
     ]);
     bindScene(scene);
@@ -887,7 +654,6 @@ Object.assign(window, {
       baseQuality: "original",
       rendering: effectiveRenderQuality(),
       selected: records[selected].id,
-      saved: [...saved],
     }),
   },
 });

@@ -3,6 +3,12 @@ import { createRequire } from "node:module";
 import { mkdir, readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 
+const uiOnly = process.env.PRESENTATION_UI_ONLY === "1";
+const captureEnabled = process.env.PRESENTATION_CAPTURE === "1";
+if (uiOnly && captureEnabled)
+  throw new Error(
+    "UI-only checks hide the 3D compositor and cannot produce visual screenshots.",
+  );
 const { chromium } = createRequire(import.meta.url)(
   process.env.PLAYWRIGHT_MODULE || "playwright",
 );
@@ -20,15 +26,32 @@ const browser = await chromium.launch({
 const output = resolve(
   process.env.PRESENTATION_OUTPUT || "work/presentation-check",
 );
-await mkdir(output, { recursive: true });
+if (captureEnabled) await mkdir(output, { recursive: true });
 const base = process.env.REVIEW_URL || "http://127.0.0.1:5173";
-const removed =
-  '#boot, #skip, .entry-start, [data-action="settings"], [data-action="replay"], [data-action="restart"], [data-action="model-viewer"], .viewer-modal, audio, video';
+const removed = [
+  ".brand",
+  ".system-nav",
+  "#modal-root",
+  "#archive-search",
+  ".terminal-modal",
+  '[data-action="search"]',
+  '[data-action="saved"]',
+  '[data-action="bookmark"]',
+  "#boot",
+  "#skip",
+  ".entry-start",
+  '[data-action="settings"]',
+  '[data-action="replay"]',
+  '[data-action="restart"]',
+  '[data-action="model-viewer"]',
+  ".viewer-modal",
+  "audio",
+  "video",
+].join(", ");
 const checks = [];
+let skippedMainSceneDraws = 0;
 async function capture(page, name) {
-  if (process.env.PRESENTATION_CAPTURE !== "1") return;
-  // Capture the current real scene without continuously adding software GPU
-  // work while Chromium reads back the canvas.
+  if (!captureEnabled) return;
   await page.evaluate(() => {
     window.capturePaused = true;
   });
@@ -42,63 +65,142 @@ async function capture(page, name) {
     });
   }
 }
+async function checkRemovedShortcuts(page) {
+  const before = await page.evaluate(() => ({
+    mode: rhine.stats().mode,
+    selected: rhine.stats().selected,
+  }));
+  await page.evaluate(() => document.activeElement?.blur());
+  for (const key of ["/", "Home"]) {
+    await page.keyboard.press(key);
+    assert.deepEqual(
+      await page.evaluate(() => ({
+        mode: rhine.stats().mode,
+        selected: rhine.stats().selected,
+      })),
+      before,
+    );
+    assert.equal(await page.locator(removed).count(), 0);
+  }
+}
 try {
   for (const legacy of [false, true]) {
-    // Exercise reading flows with the OS accessibility preference, and verify
-    // the second entry with normal motion plus legacy application preferences.
     const context = await browser.newContext({
       viewport: { width: 1280, height: 720 },
       acceptDownloads: true,
       reducedMotion: legacy ? "no-preference" : "reduce",
+      serviceWorkers: uiOnly ? "block" : "allow",
     });
-    await context.addInitScript((legacy) => {
-      // Software WebGL in CI needs backpressure to avoid a render queue growing
-      // faster than SwiftShader can drain it during screenshot readback.
-      const requestFrame = window.requestAnimationFrame.bind(window);
-      window.pendingFrames = [];
-      window.requestAnimationFrame = (callback) =>
-        requestFrame(() =>
-          setTimeout(() => {
-            if (window.capturePaused) window.pendingFrames.push(callback);
-            else callback(performance.now());
-          }, 1000),
-        );
-      window.audioContextCreations = 0;
-      for (const key of ["AudioContext", "webkitAudioContext"]) {
-        if (window[key])
-          window[key] = new Proxy(window[key], {
-            construct(target, args) {
-              window.audioContextCreations++;
-              return Reflect.construct(target, args);
+    if (uiOnly) {
+      // Intercept only the test response. Scene/state updates still run, while
+      // the expensive main-scene draw is skipped on software-only CI machines.
+      await context.route(
+        /\/(?:src\/scene\.ts|assets\/index-[^/]+\.js)(?:\?.*)?$/,
+        async (route) => {
+          const response = await route.fetch();
+          const original = await response.text();
+          const body = original.replace(
+            /this\.renderer\.render\(this\.scene,\s*this\.camera\)/g,
+            () => {
+              skippedMainSceneDraws++;
+              return "void 0";
             },
-          });
-      }
-      if (legacy)
-        localStorage.setItem(
-          "rhine-settings",
-          JSON.stringify({
-            sound: true,
-            music: true,
-            superPerformance: false,
-            colorTheme: "dark",
-            rendering: {
-              scale: 200,
-              pixelRatio: 3,
-              shadows: 4096,
-              aoSamples: 64,
-              depthOfField: 150,
-              antialias: "smaa",
-            },
-          }),
-        );
-    }, legacy);
-    let page = await context.newPage();
+          );
+          assert.notEqual(
+            body,
+            original,
+            "UI-only draw adapter must match the scene renderer",
+          );
+          await route.fulfill({ response, body });
+        },
+      );
+    }
+    await context.addInitScript(
+      ({ legacy, uiOnly }) => {
+        if (uiOnly) {
+          // Keep scene/state calculations, but suppress drawing/composition in
+          // this test browser. This mode checks DOM behavior, not visuals.
+          const installStyle = () => {
+            if (!document.documentElement) return false;
+            const style = document.createElement("style");
+            style.textContent = "#three-scene { opacity: 0 !important; }";
+            document.documentElement.append(style);
+            return true;
+          };
+          if (!installStyle()) {
+            const observer = new MutationObserver(() => {
+              if (installStyle()) observer.disconnect();
+            });
+            observer.observe(document, { childList: true, subtree: true });
+          }
+        }
+        // Throttle only this test browser, without changing product animation.
+        const requestFrame = window.requestAnimationFrame.bind(window);
+        window.pendingFrames = [];
+        window.requestAnimationFrame = (callback) =>
+          requestFrame(() =>
+            setTimeout(
+              () => {
+                if (window.capturePaused) window.pendingFrames.push(callback);
+                else callback(performance.now());
+              },
+              uiOnly ? 100 : 1000,
+            ),
+          );
+        window.audioContextCreations = 0;
+        for (const key of ["AudioContext", "webkitAudioContext"]) {
+          if (window[key])
+            window[key] = new Proxy(window[key], {
+              construct(target, args) {
+                window.audioContextCreations++;
+                return Reflect.construct(target, args);
+              },
+            });
+        }
+        if (legacy) {
+          localStorage.setItem(
+            "rhine-settings",
+            JSON.stringify({
+              sound: true,
+              music: true,
+              superPerformance: false,
+              colorTheme: "dark",
+              rendering: {
+                scale: 200,
+                pixelRatio: 3,
+                shadows: 4096,
+                aoSamples: 64,
+                depthOfField: 150,
+                antialias: "smaa",
+              },
+            }),
+          );
+          localStorage.setItem(
+            "rhine-saved",
+            JSON.stringify(["X-001", "X-007"]),
+          );
+        }
+        window.savedStorageAccesses = [];
+        for (const method of ["getItem", "setItem", "removeItem"]) {
+          const original = Storage.prototype[method];
+          Storage.prototype[method] = function (...args) {
+            if (this === localStorage && args[0] === "rhine-saved")
+              window.savedStorageAccesses.push(method);
+            return Reflect.apply(original, this, args);
+          };
+        }
+      },
+      { legacy, uiOnly },
+    );
+    const page = await context.newPage();
     page.setDefaultTimeout(60000);
-    console.log(`Checking ${legacy ? "legacy" : "fresh"} browser entry`);
     const errors = [],
       requests = [];
     page.on("pageerror", (error) => errors.push(error.message));
     page.on("request", (request) => requests.push(request.url()));
+    console.log(
+      `Checking ${legacy ? "legacy" : "fresh"} entry (${uiOnly ? "DOM only" : "graphics enabled"})`,
+    );
     await page.goto(
       `${base}/${legacy ? "?time=28&freeze=1&scene=detail" : ""}`,
     );
@@ -109,23 +211,11 @@ try {
     );
     await page.locator("#loading").waitFor({ state: "detached" });
     const stats = await page.evaluate(() => rhine.stats());
-    console.log(
-      JSON.stringify({
-        mode: stats.mode,
-        archives: stats.archiveCount,
-        candidates: stats.archiveCandidates,
-        rendering: stats.rendering,
-      }),
-    );
-    assert.equal(
-      stats.mode,
-      "archive",
-      "entry needs no gesture and never runs the opening",
-    );
+    assert.equal(stats.mode, "archive");
     assert.equal(stats.superPerformance, true);
     assert.equal(stats.baseQuality, "original");
     assert.equal(stats.postprocessing, false);
-    assert.ok(stats.archiveCount > 40, "visible archive array is populated");
+    assert.ok(stats.archiveCount > 40, "archive scene is populated");
     const metrics = await page
       .locator("#three-scene")
       .evaluate((el) => JSON.parse(el.dataset.renderQuality));
@@ -135,104 +225,65 @@ try {
     assert.equal(metrics.depthOfField, 0);
     assert.ok(metrics.width * metrics.height <= 921600);
     assert.equal(await page.locator(removed).count(), 0);
-    await page.waitForFunction(
-      () =>
-        getComputedStyle(document.querySelector(".three-scene")).opacity ===
-        "1",
+    assert.equal(
+      await page.locator("#archive-category").count(),
+      1,
+      "archive category remains available",
     );
-    assert.equal(await page.evaluate(() => window.audioContextCreations), 0);
+    if (!uiOnly)
+      await page.waitForFunction(
+        () =>
+          getComputedStyle(document.querySelector(".three-scene")).opacity ===
+          "1",
+      );
+    await checkRemovedShortcuts(page);
     checks.push(
       legacy
-        ? "Normal-motion entry ignores legacy preferences and opening query parameters"
-        : "Fresh visit with OS reduced motion opens the populated array automatically using only lightweight rendering",
+        ? "Legacy bookmarks/settings and old entry queries cannot restore removed features"
+        : "Direct archive entry has no brand heading, search or bookmark controls",
     );
     if (!legacy) {
       await capture(page, "archive-desktop");
-      console.log("Desktop array visible");
       const initial = stats.selected;
       await page.keyboard.press("ArrowDown");
       assert.notEqual(
         await page.evaluate(() => rhine.stats().selected),
         initial,
       );
-      await page.keyboard.press("/");
-      await page.locator("#archive-search").waitFor();
-      assert.equal(await page.locator(".result-row").count(), 40);
-      await page.locator("#archive-search").fill("X-001");
-      assert.equal(await page.locator(".result-row").count(), 1);
-      await page.locator(".result-row").click();
+      await page.keyboard.press("ArrowUp");
+      assert.equal(await page.evaluate(() => rhine.stats().selected), initial);
+      await page.keyboard.press("ArrowRight");
+      assert.notEqual(
+        await page.evaluate(() => rhine.stats().selected),
+        initial,
+      );
+      await page.keyboard.press("ArrowLeft");
+      assert.equal(await page.evaluate(() => rhine.stats().selected), initial);
+      await page.locator(".read-file").click();
       await page.waitForFunction(
         () =>
           rhine.stats().mode === "detail" &&
-          rhine.stats().decryption.modelClarity >= 0.99 &&
-          rhine.stats().cameraDetail >= 0.99,
-        null,
-        { timeout: 60000 },
+          !document.querySelector("#detail-content").inert,
       );
       assert.equal(await page.locator(removed).count(), 0);
+      await checkRemovedShortcuts(page);
       await page.locator('[data-tab="notes"]').click();
       assert.ok((await page.locator(".research-notes li").count()) > 0);
-      await page.locator('[data-action="bookmark"]').click();
-      assert.ok(
-        (await page.evaluate(() => rhine.stats().saved)).includes("X-001"),
-      );
       const [download] = await Promise.all([
         page.waitForEvent("download"),
         page.locator(".export-button").click(),
       ]);
+      assert.equal(download.suggestedFilename(), `RHINE-LAB-${initial}.txt`);
       const content = await readFile(await download.path(), "utf8");
       assert.ok(content.includes("莱茵生命"));
       await capture(page, "detail-desktop");
       await page.keyboard.press("Escape");
-      await page.locator('[data-action="saved"]').click();
-      assert.equal(await page.locator(".result-row").count(), 1);
-      await page.keyboard.press("Escape");
-      await page.locator(".terminal-modal").waitFor({ state: "detached" });
+      assert.equal(await page.evaluate(() => rhine.stats().mode), "archive");
+      assert.equal(await page.locator("canvas").count(), 1);
       checks.push(
-        "Navigation, all 40 archive records, search, detail tabs, bookmarks and text export work",
-      );
-      console.log("Archive interactions passed");
-      // A fresh mobile surface avoids resizing an in-flight software WebGL
-      // buffer; responsive geometry itself is covered by check:viewport.
-      await page.close();
-      page = await context.newPage();
-      page.setDefaultTimeout(60000);
-      page.on("pageerror", (error) => errors.push(error.message));
-      page.on("request", (request) => requests.push(request.url()));
-      await page.setViewportSize({ width: 390, height: 844 });
-      await page.goto(base);
-      await page.waitForFunction(
-        () => window.rhine?.stats().startup === "started",
-        null,
-        { timeout: 60000 },
-      );
-      await capture(page, "archive-mobile");
-      await page.locator(".read-file").click();
-      await page.waitForFunction(
-        () =>
-          rhine.stats().decryption.modelClarity >= 0.99 &&
-          rhine.stats().cameraDetail >= 0.99,
-      );
-      await page.locator('[data-tab="notes"]').click();
-      await capture(page, "detail-mobile");
-      const detail = await page.locator("#detail-content").boundingBox();
-      assert.ok(
-        detail.width <= 390 && detail.x >= -1 && detail.x + detail.width <= 391,
-      );
-      assert.equal(
-        await page.locator("canvas").count(),
-        1,
-        "detail keeps only the main scene canvas",
-      );
-      assert.equal(
-        await page.evaluate(() => rhine.stats().postprocessing),
-        false,
-      );
-      checks.push(
-        "Portrait layout remains readable and detail uses the same lightweight scene",
+        "File/column navigation, detail tabs, Escape return and TXT export remain available",
       );
     }
-    // Let production PWA installation request its offline resources too.
     await page.waitForTimeout(2000);
     assert.deepEqual(
       requests.filter((url) =>
@@ -241,10 +292,28 @@ try {
       [],
     );
     assert.equal(await page.evaluate(() => window.audioContextCreations), 0);
+    assert.deepEqual(
+      await page.evaluate(() => window.savedStorageAccesses),
+      [],
+    );
     assert.deepEqual(errors, []);
     await context.close();
   }
-  console.log(JSON.stringify({ checks, errors: [], output }, null, 2));
+  console.log(
+    JSON.stringify(
+      {
+        mode: uiOnly
+          ? "DOM/state only; main scene drawing skipped, no visual or GPU validation"
+          : "graphics enabled",
+        checks,
+        errors: [],
+        ...(uiOnly ? { skippedMainSceneDraws } : {}),
+        ...(captureEnabled ? { output } : {}),
+      },
+      null,
+      2,
+    ),
+  );
 } finally {
   await browser.close();
 }

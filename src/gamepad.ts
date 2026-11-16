@@ -19,8 +19,6 @@ function keysFor(pad: Gamepad): PressedKeys {
 
   if (button(0) || button(9)) keys.add("Enter");
   if (button(1) || button(8)) keys.add("Escape");
-  if (button(2)) keys.add("/");
-  if (button(3)) keys.add("Home");
   if (button(4)) keys.add("Shift+Tab");
   if (button(5)) keys.add("Tab");
   if (button(12) || axis(1) < -DEADZONE) keys.add("ArrowUp");

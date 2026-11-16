@@ -12,7 +12,6 @@
 [data-layout="desktop"] .column-navigation { left: 52.34375%; }
 [data-layout="desktop"] .archive-hint { left: 26.302083%; }
 [data-layout="desktop"] .detail-content { left: 60.104167%; width: min(636px, 33.125%); max-height: calc(100% - 369px); overflow-y: auto; scrollbar-width: thin; }
-[data-layout="desktop"] .terminal-modal { max-width: calc(100% - 100px); }
 
 /* Compact controls use actual CSS pixels, independent of render resolution. */
 #stage:is([data-layout="compact"], [data-layout="portrait"]) {
@@ -20,10 +19,7 @@
   --top-edge: max(16px, env(safe-area-inset-top));
   --bottom-edge: max(12px, env(safe-area-inset-bottom));
 }
-:is([data-layout="compact"], [data-layout="portrait"]) .brand { left: var(--edge); top: var(--top-edge); transform: scale(.48) !important; transform-origin: top left; }
-:is([data-layout="compact"], [data-layout="portrait"]) .system-nav { top: var(--top-edge); right: var(--edge); gap: 18px; }
-:is([data-layout="compact"], [data-layout="portrait"]) .system-nav button { min-height: 44px; min-width: 44px; font-size: 11px; justify-content: center; gap: 7px; }
-:is([data-layout="compact"], [data-layout="portrait"]) :is(.key, .powered, .archive-hint, .hover-label) { display: none; }
+:is([data-layout="compact"], [data-layout="portrait"]) :is(.powered, .archive-hint, .hover-label) { display: none; }
 :is([data-layout="compact"], [data-layout="portrait"]) .system-footer { left: var(--edge); right: var(--edge); bottom: var(--bottom-edge); font-size: 8px; gap: 12px; }
 :is([data-layout="compact"], [data-layout="portrait"]) .system-footer > span:nth-child(2) { display: none; }
 :is([data-layout="compact"], [data-layout="portrait"]) .system-footer :is(button, a) { margin-left: auto; font-size: 9px; min-height: 28px; }
@@ -70,15 +66,10 @@
 :is([data-layout="compact"], [data-layout="portrait"]) .tab-panel { height: auto; overflow: visible; padding-top: 12px; }
 :is([data-layout="compact"], [data-layout="portrait"]) .tab-panel p { font-size: 15px; text-align: left; }
 :is([data-layout="compact"], [data-layout="portrait"]) .detail-actions { gap: 12px; }
-:is([data-layout="compact"], [data-layout="portrait"]) .solid-button { font-size: 9px; padding: 0 12px; gap: 10px; }
 :is([data-layout="compact"], [data-layout="portrait"]) .export-button { width: 88px; font-size: 10px; }
 :is([data-layout="compact"], [data-layout="portrait"]) .detail-footnote { gap: 12px; line-height: 1.8; flex-wrap: wrap; }
 
 /* Portrait keeps the specimen above an independently scrollable document. */
-[data-layout="portrait"] .brand { transform: scale(.42) !important; }
-[data-layout="portrait"] .system-nav { gap: 8px; }
-[data-layout="portrait"] .system-nav button[data-action="search"] { font-size: 0; gap: 0; }
-[data-layout="portrait"] .system-nav button[data-action="saved"] { font-size: 10px; }
 [data-layout="portrait"] .archive-callout { left: var(--edge); top: auto; bottom: 205px; width: calc(100% - 2 * var(--edge)); }
 [data-layout="portrait"] .archive-counter { bottom: 58px; }
 [data-layout="portrait"] .column-navigation { bottom: 58px; }
@@ -93,41 +84,14 @@
 [data-layout="portrait"] .archive-atmosphere::after { background: linear-gradient(180deg, transparent 28%, rgba(232,229,225,.2) 39%, rgba(232,229,225,.96) 51%, #e8e5e1 60%); }
 [data-layout="portrait"] .archive-atmosphere::before { background: linear-gradient(180deg, rgba(234,231,226,.35), transparent 25%, transparent 46%, rgba(232,229,225,.8) 65%, #e8e5e1 82%); }
 
-/* Dialogs remain inside the visual viewport when a software keyboard opens. */
-:is([data-layout="compact"], [data-layout="portrait"]) .modal-backdrop { top: var(--modal-top, 0px); height: var(--modal-height, 100%); bottom: auto; padding: var(--top-edge) var(--edge) var(--bottom-edge); }
-:is([data-layout="compact"], [data-layout="portrait"]) .terminal-modal { width: min(760px, 100%); height: 100%; max-height: 850px; overflow: auto; overscroll-behavior: contain; scrollbar-width: thin; }
-/* Top inset moves to the sticky .modal-top; the container must not keep its
-   own padding-top or scrolling content peeks out above the bar. */
-:is([data-layout="compact"], [data-layout="portrait"]) .terminal-modal { padding: 0 20px 16px; }
-:is([data-layout="compact"], [data-layout="portrait"]) .modal-top { padding-top: 16px; padding-bottom: 8px; font-size: 9px; gap: 12px; }
-:is([data-layout="compact"], [data-layout="portrait"]) .modal-top button { min-height: 44px; min-width: 44px; gap: 8px; }
-:is([data-layout="compact"], [data-layout="portrait"]) .terminal-modal h2 { font-size: 25px; margin: 18px 0; flex-wrap: wrap; gap: 8px; }
-:is([data-layout="compact"], [data-layout="portrait"]) .terminal-modal h2 small { font-size: 12px; }
-:is([data-layout="compact"], [data-layout="portrait"]) .search-field { height: 48px; gap: 12px; }
-:is([data-layout="compact"], [data-layout="portrait"]) .search-field input, :is([data-layout="compact"], [data-layout="portrait"]) .search-field input::placeholder { font-size: 16px; }
-:is([data-layout="compact"], [data-layout="portrait"]) .category-filters { gap: 4px 18px; padding: 12px 0; flex-wrap: wrap; }
-:is([data-layout="compact"], [data-layout="portrait"]) .category-filters button { min-height: 44px; font-size: 12px; }
-:is([data-layout="compact"], [data-layout="portrait"]) :is(.result-header, .result-row) { grid-template-columns: minmax(0, 1fr) 100px; }
-:is([data-layout="compact"], [data-layout="portrait"]) :is(.result-header, .result-row) > span:last-child { display: none; }
-:is([data-layout="compact"], [data-layout="portrait"]) .result-name { gap: 10px; padding-right: 12px; font-size: 14px; }
-:is([data-layout="compact"], [data-layout="portrait"]) .result-name > b { font-size: 12px; flex-basis: 48px; }
-:is([data-layout="compact"], [data-layout="portrait"]) .search-results { height: auto; overflow: visible; }
-:is([data-layout="compact"], [data-layout="portrait"]) .modal-bottom { position: static; margin-top: 22px; gap: 12px; font-size: 8px; flex-wrap: wrap; }
 :is([data-layout="compact"], [data-layout="portrait"]) .toast { max-width: calc(100% - 40px); width: max-content; font-size: 13px; bottom: 52px; }
 
 @media (max-width: 370px) {
   #stage[data-layout="portrait"] { --edge: max(14px, env(safe-area-inset-left), env(safe-area-inset-right)); }
-  [data-layout="portrait"] .system-nav { gap: 0; }
   [data-layout="portrait"] .column-navigation { gap: 2px; }
   [data-layout="portrait"] .file-ticks button { width: 24px; }
-  /* Narrow screens keep their 12px side insets, minus the top one now owned
-     by the sticky bar. */
-  [data-layout="portrait"] .terminal-modal { padding: 0 12px 12px; }
-  [data-layout="portrait"] .modal-top { padding-top: 12px; }
-  [data-layout="portrait"] :is(.result-header, .result-row) { grid-template-columns: minmax(0, 1fr) 68px; }
 }
 @media (max-height: 440px) and (orientation: landscape) {
-  [data-layout="compact"] .brand { transform: scale(.36) !important; }
   [data-layout="compact"] .archive-callout { top: 25%; }
   [data-layout="compact"] .eyebrow { display: none; }
   [data-layout="compact"] .back-button { top: 60px; }
@@ -139,6 +103,4 @@
   [data-layout="compact"] .archive-navigation { left: var(--edge); bottom: 112px; }
   [data-layout="compact"] .file-title { font-size: 18px; }
   [data-layout="compact"] .file-open { margin-left: 0; }
-  [data-layout="compact"] .system-nav { gap: 8px; }
-  [data-layout="compact"] .system-nav [data-action="search"] { font-size: 0; gap: 0; }
 }
