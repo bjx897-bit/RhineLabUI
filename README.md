@@ -1,5 +1,17 @@
 # RHINE LAB · ANALYSIS OS
 
+## 当前工作区：资料展示版
+
+本版本用于自我介绍材料展示，目前保留原有五类、40 份档案内容。页面加载后直接显示完整资料库阵列，无开场动画、声音解锁或点击进入步骤；设置、音效/音乐、独立 360° 拆解查看器与重播入口已移除。保留选档、详情解密与阅读、检索、收藏、TXT 导出及移动端布局。
+
+基础画质固定为 `original`，实际渲染始终使用 SUPER PERFORMANCE 覆盖：60% 渲染比例、DPR 上限 1、921600 像素上限，不创建 AO、景深或 SMAA 后处理管线。浏览器旧设置不能恢复声音或全量渲染。发行包及 PWA 缓存不包含音频、拆解模型或开场 Novecento 字体；正常详情继续使用主场景档案模型。
+
+使用 Node.js 22.12+，执行 `npm ci`、`npm run dev`；`npm run build` 生成 `dist/`。执行 `npm run check:content`、`npm run check:viewport` 和 `node scripts/check-presentation-browser.mjs` 验证。浏览器检查需 Playwright，可通过 `PLAYWRIGHT_MODULE`、`BROWSER_EXECUTABLE`、`REVIEW_URL`、`PRESENTATION_OUTPUT` 指定本机环境；设置 `PRESENTATION_CAPTURE=1` 可额外保存截图。阅读流程使用系统减少动态效果偏好，另验证正常动画模式下的首次进入；软件 WebGL 检查限制测试帧率，不用于性能评分。
+
+以下为上游项目介绍及资源来源记录，其中的原站链接、开场、设置、音频和拆解操作不代表本资料展示版的功能。
+
+---
+
 **把莱茵生命的终端，做成可以操作的三维界面。**
 
 **[在线体验 → rhine.lubeiluchen.cc](https://rhine.lubeiluchen.cc/)**

@@ -16,6 +16,7 @@ import { OutputPass } from "three/addons/postprocessing/OutputPass.js";
 import { BokehPass } from "three/addons/postprocessing/BokehPass.js";
 import { SMAAPass } from "three/addons/postprocessing/SMAAPass.js";
 import { normalizeQuality, type RenderQuality } from "./render-quality";
+import { superPerformanceQuality } from "./wallpaper-quality";
 import { applyTextureQuality, resizeQuality } from "./quality-renderer";
 import { CardAppearance } from "./appearance";
 import { configureInternalOptics } from "./internal-optics";
@@ -83,8 +84,8 @@ export class ArchiveScene {
     this.assemblyTemplate?.then(disposeThreeTree).catch(() => {});
     this.assemblyTemplate = undefined;
     this.light.shadow.map?.dispose();
-    for (const pass of this.composer.passes) pass.dispose();
-    this.composer.dispose();
+    for (const pass of this.composer?.passes ?? []) pass.dispose();
+    this.composer?.dispose();
     this.renderer.dispose();
     this.renderer.forceContextLoss();
     this.renderer.domElement.remove();
@@ -96,8 +97,14 @@ export class ArchiveScene {
   private selectedIndexOnly = false;
   private superPerformance = false;
   setSuperPerformance(enabled: boolean) {
+    enabled = this.superPerformanceOnly || enabled;
     if (this.superPerformance === enabled) return;
     this.superPerformance = enabled;
+    this.applySuperPerformanceMaterials();
+    this.resize();
+  }
+  private applySuperPerformanceMaterials() {
+    const enabled = this.superPerformance;
     for (const inst of this.instances) {
       const original = (inst.userData.fullMaterial ??= inst.material) as THREE.MeshPhysicalMaterial;
       if (enabled && !inst.userData.fastMaterial) {
@@ -112,7 +119,6 @@ export class ArchiveScene {
       inst.material = enabled ? inst.userData.fastMaterial : original;
       inst.visible = !enabled || original.name.replace(/\.\d+$/, "") !== "Titanium_Fasteners";
     }
-    this.resize();
   }
   setSelectedIndexAccent(onlySelected: boolean) { this.selectedIndexOnly = onlySelected; }
   private themeAttribute?: THREE.InstancedBufferAttribute;
@@ -163,15 +169,16 @@ export class ArchiveScene {
   // plane quantizes adjacent optical layers to the same depth (visible shimmer).
   // All visible foreground geometry is beyond 5; retain the framing and lens.
   readonly camera = new THREE.PerspectiveCamera(34, 16 / 9, 5, 300);
-  private composer: EffectComposer;
-  private ao: SharedDepthAO;
-  private bokeh: BokehPass;
+  private composer?: EffectComposer;
+  private ao?: SharedDepthAO;
+  private bokeh?: BokehPass;
   private instances: THREE.InstancedMesh[] = [];
   private matrixUpdates?: InstanceUpdates;
   private themeUpdates?: InstanceUpdates;
   private renderState = new RenderState();
   private shadowState = new RenderState();
   private renderedFrames = 0;
+  private initializedPresentation = false;
   private reusedFrames = 0;
   private visibility = new ArchiveVisibility();
   private drawCoverage = new ArchiveDrawCoverage();
@@ -243,7 +250,7 @@ export class ArchiveScene {
   private motion: MotionPreferences = fullMotion();
   private quality = normalizeQuality(undefined);
   private appliedQuality = "";
-  private smaa = new SMAAPass();
+  private smaa?: SMAAPass;
   private aoKernelSize = 32;
   private displayHeight = 0;
   private layoutKind = "";
@@ -255,19 +262,25 @@ export class ArchiveScene {
     private readonly selectionPulse = baselineSelectionWave,
     private readonly deferSelectionPulse = false,
     private readonly lightingLook: LightingLook = "baseline",
+    private readonly superPerformanceOnly = false,
   ) {
+    // Presentation builds never allocate the full postprocessing pipeline.
+    this.superPerformance = superPerformanceOnly;
+    if (superPerformanceOnly) this.quality = { ...superPerformanceQuality };
     this.renderer = new THREE.WebGLRenderer({
       antialias: true,
       alpha: false,
       powerPreference: "high-performance",
     });
-    this.renderer.setPixelRatio(
-      Math.min(devicePixelRatio, 1.5) *
-        Math.min(innerWidth / 1920, innerHeight / 1080),
-    );
-    this.renderer.setSize(container.clientWidth, container.clientHeight);
+    if (!superPerformanceOnly) {
+      this.renderer.setPixelRatio(
+        Math.min(devicePixelRatio, 1.5) *
+          Math.min(innerWidth / 1920, innerHeight / 1080),
+      );
+      this.renderer.setSize(container.clientWidth, container.clientHeight);
+    }
     this.renderer.info.autoReset = false;
-    this.renderer.shadowMap.enabled = true;
+    this.renderer.shadowMap.enabled = !superPerformanceOnly;
     // All composer passes see the same geometry within one application frame.
     // Generate the shadow map in the beauty pass and reuse it in depth/normal passes.
     this.renderer.shadowMap.autoUpdate = false;
@@ -315,27 +328,31 @@ export class ArchiveScene {
     this.cameraAim.set(-0.5, 1.1, 0.4);
     this.camera.fov = 6.15;
     this.camera.lookAt(this.cameraAim);
-    this.composer = new EffectComposer(this.renderer);
-    this.composer.addPass(new RenderPass(this.scene, this.camera));
-    this.ao = new SharedDepthAO(
-      this.scene,
-      this.camera,
-      container.clientWidth,
-      container.clientHeight,
-    );
-    this.ao.kernelRadius = lightingLook === "refined" ? 0.44 : 0.38;
-    this.ao.minDistance = 0.001;
-    this.ao.maxDistance = 0.09;
-    this.composer.addPass(this.ao);
-    this.bokeh = new SharedDepthBokeh(this.scene, this.camera, {
-      focus: 25,
-      aperture: 0.0018,
-      maxblur: 0.011,
-    }, () => this.ao);
-    this.composer.addPass(this.bokeh);
-    this.smaa.enabled = false;
-    this.composer.addPass(this.smaa);
-    this.composer.addPass(new OutputPass());
+    if (!superPerformanceOnly) {
+      this.composer = new EffectComposer(this.renderer);
+      this.composer.addPass(new RenderPass(this.scene, this.camera));
+      this.ao = new SharedDepthAO(
+        this.scene,
+        this.camera,
+        container.clientWidth,
+        container.clientHeight,
+      );
+      this.ao.kernelRadius = lightingLook === "refined" ? 0.44 : 0.38;
+      this.ao.minDistance = 0.001;
+      this.ao.maxDistance = 0.09;
+      this.composer.addPass(this.ao);
+      this.bokeh = new SharedDepthBokeh(this.scene, this.camera, {
+        focus: 25,
+        aperture: 0.0018,
+        maxblur: 0.011,
+      }, () => this.ao!);
+      this.composer.addPass(this.bokeh);
+      this.smaa = new SMAAPass();
+      this.smaa.enabled = false;
+      this.composer.addPass(this.smaa);
+      this.composer.addPass(new OutputPass());
+    }
+    this.resize();
     this.bindPointer();
   }
   async load(assetUrl = publicAsset("assets/archive-cassette.glb")) {
@@ -501,6 +518,8 @@ export class ArchiveScene {
     this.drawLabel(0);
     this.scene.add(this.model);
     this.model.position.copy(this.cellPosition(poolCell(this.selectedSlot)));
+    this.applySuperPerformanceMaterials();
+    applyTextureQuality(this.scene, this.renderer, this.quality);
     this.loaded = true;
   }
 
@@ -626,15 +645,16 @@ export class ArchiveScene {
     return this.motion.modelDecryption ? this.decryption.clarity : this.targetDetail;
   }
   setQuality(value: RenderQuality | boolean) {
-    const quality =
-      typeof value === "boolean"
+    const quality = this.superPerformanceOnly
+      ? { ...superPerformanceQuality }
+      : typeof value === "boolean"
         ? normalizeQuality(undefined, value)
         : normalizeQuality(value);
     const key = JSON.stringify(quality);
     if (this.appliedQuality === key) return;
     this.appliedQuality = key;
     this.quality = quality;
-    if (quality.aoSamples && quality.aoSamples !== this.aoKernelSize) {
+    if (this.ao && this.composer && quality.aoSamples && quality.aoSamples !== this.aoKernelSize) {
       const old = this.ao;
       this.ao = new SharedDepthAO(this.scene, this.camera, 1, 1, quality.aoSamples);
       this.ao.kernelRadius = old.kernelRadius;
@@ -646,9 +666,9 @@ export class ArchiveScene {
       old.dispose();
       this.aoKernelSize = quality.aoSamples;
     }
-    this.ao.enabled = quality.aoSamples > 0;
-    this.bokeh.enabled = quality.depthOfField > 0;
-    this.smaa.enabled = quality.antialias === "smaa";
+    if (this.ao) this.ao.enabled = quality.aoSamples > 0;
+    if (this.bokeh) this.bokeh.enabled = quality.depthOfField > 0;
+    if (this.smaa) this.smaa.enabled = quality.antialias === "smaa";
     this.renderer.shadowMap.enabled = quality.shadows > 0;
     const size = Math.min(
       quality.shadows || 1024,
@@ -843,20 +863,21 @@ export class ArchiveScene {
       this.quality,
       this.superPerformance,
     );
-    this.ao.setSize(
+    this.ao?.setSize(
       Math.max(1, Math.floor(dimensions.width * this.quality.aoResolution)),
       Math.max(1, Math.floor(dimensions.height * this.quality.aoResolution)),
     );
-    this.ao.setSharing(this.ao.enabled && this.bokeh.enabled && this.quality.aoResolution === 1 && !this.superPerformance);
+    this.ao?.setSharing(Boolean(this.ao.enabled && this.bokeh?.enabled && this.quality.aoResolution === 1 && !this.superPerformance));
     this.container.dataset.renderQuality = JSON.stringify({
       ...JSON.parse(this.container.dataset.renderQuality!),
-      aoSamples: this.ao.enabled ? this.aoKernelSize : 0,
-      aoWidth: this.ao.width,
-      aoHeight: this.ao.height,
+      aoSamples: this.ao?.enabled ? this.aoKernelSize : 0,
+      aoWidth: this.ao?.width ?? 0,
+      aoHeight: this.ao?.height ?? 0,
+      postprocessing: Boolean(this.composer),
       shadows: this.renderer.shadowMap.enabled
         ? this.light.shadow.mapSize.x
         : 0,
-      depthOfField: this.bokeh.enabled ? this.quality.depthOfField : 0,
+      depthOfField: this.bokeh?.enabled ? this.quality.depthOfField : 0,
     });
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
@@ -1209,6 +1230,30 @@ export class ArchiveScene {
     this.last = time;
     this.clock = time;
     if (!this.loaded) return;
+    const initialPresentation = this.superPerformanceOnly && !this.initializedPresentation &&
+      !cinematic && this.targetReveal > 0;
+    if (initialPresentation) {
+      // A direct-entry archive starts at its settled interactive pose. This is
+      // a one-time alignment, so later selections and detail transitions retain
+      // their normal springs, camera interpolation and extraction rules.
+      this.initializedPresentation = true;
+      const chosen = this.cellPosition(this.selectedCell);
+      this.reveal = this.targetReveal;
+      this.presence = this.presenceTarget;
+      this.detail = this.targetDetail;
+      this.lift = { value: this.targetDetail ? INSPECTION_LIFT : 0.4 * this.targetReveal, velocity: 0 };
+      this.shoulder = { value: this.selectedCell.row, velocity: 0 };
+      this.laneFocus = { value: this.selectedCell.lane, velocity: 0 };
+      this.columnCamera = { value: chosen.x, velocity: 0 };
+      this.rail = { value: -2.17 - chosen.z, velocity: 0 };
+      this.rotation = this.targetRotation;
+      this.returnY = null;
+      this.scanBlend = 0;
+      this.idleGain = 0;
+      this.lastInteraction = time;
+      this.pulses = [];
+      this.pendingPulse = null;
+    }
     this.flushHover();
     const step = !this.motion.surfaceTransitions ? 1 : Math.min(elapsed, .25) / 1.1;
     this.presence += Math.sign(this.presenceTarget - this.presence) * Math.min(step, Math.abs(this.presenceTarget - this.presence));
@@ -1648,7 +1693,7 @@ export class ArchiveScene {
     const cameraTransition = this.targetDetail || this.detail > 0.01
       ? this.motion.detailTransition
       : this.motion.selectionTransition;
-    const cameraBlend = cinematic ? 1 : cameraTransition ? 1 - Math.exp(-dt * 5) : 1;
+    const cameraBlend = cinematic || initialPresentation ? 1 : cameraTransition ? 1 - Math.exp(-dt * 5) : 1;
     this.camera.position.lerp(cameraPosition, cameraBlend);
     this.cameraAim.lerp(cameraAim, cameraBlend);
     this.camera.lookAt(this.cameraAim);
@@ -1745,19 +1790,18 @@ export class ArchiveScene {
           : this.targetDetail
             ? "lifting"
             : "preview";
-    const focalPoint = this.model.position
-      .clone()
-      .add(new THREE.Vector3(0, 2, 0))
-      .applyMatrix4(this.camera.matrixWorldInverse);
-    const bokehUniforms = this.bokeh.uniforms as Record<
-      string,
-      { value: number }
-    >;
-    bokehUniforms.focus.value = -focalPoint.z;
-    bokehUniforms.aperture.value =
-      (THREE.MathUtils.lerp(0.0003, 0.0008, detail) *
-        this.quality.depthOfField) /
-      100;
+    let focus = 0, aperture = 0;
+    if (this.bokeh?.enabled) {
+      const focalPoint = this.model.position
+        .clone()
+        .add(new THREE.Vector3(0, 2, 0))
+        .applyMatrix4(this.camera.matrixWorldInverse);
+      focus = -focalPoint.z;
+      aperture = (THREE.MathUtils.lerp(0.0003, 0.0008, detail) * this.quality.depthOfField) / 100;
+      const uniforms = this.bokeh.uniforms as Record<string, { value: number }>;
+      uniforms.focus.value = focus;
+      uniforms.aperture.value = aperture;
+    }
     this.renderer.info.reset();
     // Keep all simulation and picking current. Reuse the composited canvas only
     // when its actual inputs are identical, including late textures and materials.
@@ -1772,7 +1816,7 @@ export class ArchiveScene {
       state.floats(...this.camera.projectionMatrix.elements, ...this.camera.matrixWorldInverse.elements,
         ...this.camera.position.toArray(),
         fog.near, fog.far, this.themeAmount, this.subduedIndex.value,
-        bokehUniforms.focus.value, bokehUniforms.aperture.value);
+        focus, aperture);
       this.scene.traverse(object => {
         state.add(object.id, Number(object.visible));
         if (!(object instanceof THREE.Mesh)) return;
@@ -1807,7 +1851,7 @@ export class ArchiveScene {
       if (object instanceof THREE.InstancedMesh) shadow.add(object.count, object.instanceMatrix.version);
     });
     this.renderer.shadowMap.needsUpdate = shadow.end() || this.light.shadow.needsUpdate;
-    if (this.superPerformance) this.renderer.render(this.scene, this.camera);
+    if (this.superPerformance || !this.composer) this.renderer.render(this.scene, this.camera);
     else this.composer.render();
   }
   projectCard(x: number, y: number) {
@@ -1848,6 +1892,7 @@ export class ArchiveScene {
       renderedFrames: this.renderedFrames,
       reusedFrames: this.reusedFrames,
       superPerformance: this.superPerformance,
+      postprocessing: Boolean(this.composer),
       presentation: this.presence,
       triangles: this.renderer.info.render.triangles,
       archiveCount: this.drawnCells.length,

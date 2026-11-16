@@ -6,14 +6,17 @@ const all=await readdir(root,{recursive:true});
 const files=all.map(path=>path.replaceAll('\\','/')).filter(path=>
   path==='index.html'||path==='manifest.webmanifest'||path==='favicon.svg'||
   /^(assets|icons|archives|licenses)\/[^/]+\.[^/]+$/.test(path)||
-  /^fonts\/.*\.(woff2|pdf|txt|json|md)$/.test(path)||
-  /^audio\/(atmosphere|motif|pulse)\.ogg$/.test(path)
-).filter(path=>!/^assets\/archive-(cassette|assembly)\.glb$/.test(path)).sort();
+  /^fonts\/.*\.(woff2|pdf|txt|json|md)$/.test(path)
+).filter(path=>
+  !/^assets\/archive-cassette\.glb$/.test(path)&&
+  !/^assets\/archive-assembly(?:\.[a-f0-9]+)?\.glb$/.test(path)&&
+  !path.startsWith('fonts/novecento/')
+).sort();
 if(!files.some(path=>/^assets\/index-.*\.js$/.test(path)))throw Error('Build the application before generating the offline cache.');
 const worker=await readFile('scripts/pwa-worker.js','utf8');
 const hash=createHash('sha256').update(worker);let bytes=0;
 for(const file of files){const content=await readFile(resolve(root,file));hash.update(file).update(content);bytes+=content.length}
 const version=hash.digest('hex').slice(0,16);
 await writeFile(resolve(root,'sw.js'),worker.replace('__CACHE_VERSION__',JSON.stringify(version)).replace('__PRECACHE_FILES__',JSON.stringify(files)));
-await writeFile(resolve(root,'pwa-build.json'),JSON.stringify({version,bytes,files},null,2));
+await writeFile(resolve(root,'pwa-build.json'),JSON.stringify({profile:'presentation',version,bytes,files},null,2));
 console.log(`Offline release ${version}: ${files.length} files, ${(bytes/1024/1024).toFixed(1)} MiB.`);

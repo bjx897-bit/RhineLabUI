@@ -1,5 +1,4 @@
 import { mkdir, readFile, writeFile, readdir, stat } from 'node:fs/promises';
-import { createHash } from 'node:crypto';
 import { dirname, resolve, sep } from 'node:path';
 
 // Package only the public application, using the same release list as the PWA.
@@ -9,16 +8,7 @@ const metadata = JSON.parse(await readFile(resolve(source, 'pwa-build.json'), 'u
 if (!/^[a-f0-9]{16}$/.test(metadata.version)) throw Error('Invalid PWA release version.');
 // Pages Git builds need a stable output path; each hosted build starts clean.
 const output = resolve('release/cloudflare', process.env.CF_PAGES === '1' ? 'site' : metadata.version);
-const fonts = JSON.parse(await readFile('verification/boot-lettering/webfont-sources.json', 'utf8'));
-for (const [weight, font] of Object.entries(fonts)) {
-  const path = `fonts/novecento/webFonts/NovecentoSansWide${weight}/font.woff2`;
-  if (!metadata.files.includes(path)) throw Error(`Official release requires licensed font: ${weight}`);
-  const bytes = await readFile(resolve(source, path));
-  if (createHash('sha256').update(bytes).digest('hex') !== font.sha256)
-    throw Error(`Licensed font checksum mismatch: ${weight}`);
-}
-const files = [...new Set([...metadata.files, 'sw.js', 'pwa-build.json', 'update.html', 'update.js',
-  'fonts/novecento/RhineLabNovecento.css'])].sort();
+const files = [...new Set([...metadata.files, 'sw.js', 'pwa-build.json', 'update.html', 'update.js'])].sort();
 const entries = [];
 for (const path of files) {
   const from = resolve(source, path);
@@ -54,4 +44,4 @@ await writeFile('release/cloudflare/latest.json', JSON.stringify({
   bytes: entries.reduce((total, entry) => total + entry.bytes.length, 0),
   largestFileBytes: Math.max(...entries.map(entry => entry.bytes.length)),
 }, null, 2));
-console.log(`Cloudflare package ready: ${output}\n${files.length + 2} files; licensed fonts verified.`);
+console.log(`Cloudflare presentation package ready: ${output}\n${files.length + 2} files.`);
