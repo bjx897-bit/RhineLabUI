@@ -489,17 +489,6 @@ button {
   margin-top: 7px;
   color: #76736a;
 }
-.object-caption > small {
-  font-size: 10px;
-  letter-spacing: 1px;
-  display: block;
-  margin-top: 34px;
-  color: #817b70;
-}
-.object-caption > small span {
-  font-size: 18px;
-  margin-left: 18px;
-}
 .detail-content {
   position: absolute;
   left: 1154px;

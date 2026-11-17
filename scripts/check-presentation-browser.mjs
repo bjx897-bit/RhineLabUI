@@ -83,6 +83,109 @@ async function checkRemovedShortcuts(page) {
     assert.equal(await page.locator(removed).count(), 0);
   }
 }
+async function checkDetailDisplayOnly(page) {
+  const waitFrames = async () => {
+    const frame = await page.evaluate(() => {
+      const stats = rhine.stats();
+      return stats.renderedFrames + stats.reusedFrames;
+    });
+    await page.waitForFunction((previous) => {
+      const stats = rhine.stats();
+      return stats.renderedFrames + stats.reusedFrames >= previous + 3;
+    }, frame);
+  };
+  await page.waitForFunction(() => {
+    const stats = rhine.stats();
+    return (
+      stats.cameraDetail >= 0.999 &&
+      stats.extraction >= 4.049 &&
+      document.querySelector("#three-scene").dataset.inspection === "display"
+    );
+  });
+  await waitFrames();
+  const before = await page.evaluate(() => rhine.stats());
+  assert.equal(before.canInspect, false);
+  assert.equal(
+    await page
+      .locator("#three-scene canvas")
+      .evaluate((canvas) => getComputedStyle(canvas).pointerEvents),
+    "none",
+  );
+  assert.ok(
+    !(await page.locator("#detail-ui").innerText()).includes("DRAG TO INSPECT"),
+  );
+  for (const input of ["mouse", "touch", "wheel"]) {
+    // Dispatch directly to the canvas as well as checking CSS above: scene
+    // handlers must reject detail input even when hit testing is bypassed.
+    await page.locator("#three-scene canvas").evaluate((canvas, input) => {
+      const rect = canvas.getBoundingClientRect();
+      const point = {
+        clientX: rect.left + rect.width * 0.28,
+        clientY: rect.top + rect.height * 0.52,
+      };
+      if (input === "wheel") {
+        canvas.dispatchEvent(
+          new WheelEvent("wheel", {
+            ...point,
+            deltaY: 600,
+            bubbles: true,
+            cancelable: true,
+          }),
+        );
+      } else {
+        const pointer = {
+          ...point,
+          pointerId: input === "mouse" ? 1 : 2,
+          pointerType: input,
+          isPrimary: true,
+          bubbles: true,
+        };
+        canvas.dispatchEvent(
+          new PointerEvent("pointerdown", { ...pointer, buttons: 1 }),
+        );
+        canvas.dispatchEvent(
+          new PointerEvent("pointermove", {
+            ...pointer,
+            clientX: point.clientX + 180,
+            clientY: point.clientY - 60,
+            buttons: 1,
+          }),
+        );
+        canvas.dispatchEvent(new PointerEvent("pointerup", pointer));
+        canvas.dispatchEvent(new PointerEvent("pointerleave", pointer));
+      }
+    }, input);
+    await waitFrames();
+    const after = await page.evaluate(() => rhine.stats());
+    assert.equal(after.mode, "detail", `${input}: detail remains open`);
+    assert.equal(
+      after.selected,
+      before.selected,
+      `${input}: selection is unchanged`,
+    );
+    assert.equal(after.canInspect, false);
+    for (const [key, tolerance] of [
+      ["rotation", 1e-5],
+      ["fieldOfView", 1e-3],
+      ["extraction", 1e-3],
+    ])
+      assert.ok(
+        Math.abs(after[key] - before[key]) <= tolerance,
+        `${input}: ${key} is unchanged`,
+      );
+    for (const [key, tolerance] of [
+      ["cameraPosition", 0.01],
+      ["cameraQuaternion", 1e-3],
+      ["modelPosition", 0.01],
+    ])
+      after[key].forEach((value, index) =>
+        assert.ok(
+          Math.abs(value - before[key][index]) <= tolerance,
+          `${input}: ${key}[${index}] is unchanged`,
+        ),
+      );
+  }
+}
 try {
   for (const legacy of [false, true]) {
     const context = await browser.newContext({
@@ -267,6 +370,10 @@ try {
       );
       assert.equal(await page.locator(removed).count(), 0);
       await checkRemovedShortcuts(page);
+      await checkDetailDisplayOnly(page);
+      checks.push(
+        "Detail extraction reaches display state; mouse/touch drag and wheel cannot rotate, move the camera or change selection",
+      );
       await page.locator('[data-tab="notes"]').click();
       assert.ok((await page.locator(".research-notes li").count()) > 0);
       const [download] = await Promise.all([
@@ -279,6 +386,22 @@ try {
       await capture(page, "detail-desktop");
       await page.keyboard.press("Escape");
       assert.equal(await page.evaluate(() => rhine.stats().mode), "archive");
+      await page.waitForFunction(() => {
+        const stats = rhine.stats();
+        return (
+          stats.cameraDetail <= 0.001 &&
+          stats.extraction <= 0.401 &&
+          document.querySelector("#three-scene").dataset.inspection ===
+            "preview"
+        );
+      });
+      assert.equal(await page.evaluate(() => rhine.stats().selected), initial);
+      assert.notEqual(
+        await page
+          .locator("#three-scene canvas")
+          .evaluate((canvas) => getComputedStyle(canvas).pointerEvents),
+        "none",
+      );
       assert.equal(await page.locator("canvas").count(), 1);
       checks.push(
         "File/column navigation, detail tabs, Escape return and TXT export remain available",
