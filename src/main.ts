@@ -1,5 +1,6 @@
 import { createRollingClock } from "./rolling-clock";
 import { InspectionOverlay } from "./inspection-overlay";
+import { DetailProjection } from "./detail-projection";
 import "./decryption.css";
 import { escapeHtml } from "./html";
 import { qualityPresets } from "./render-quality";
@@ -44,15 +45,22 @@ $("#stage").innerHTML = `
     <div class="archive-hint"><kbd>ENTER</kbd> 读取档案</div>
   </section>
   <section id="detail-ui" class="detail-ui" aria-label="档案内容" hidden>
+    <svg id="detail-projection" class="detail-projection" aria-hidden="true" focusable="false"><path class="projection-beam"/><path class="projection-rays"/><circle class="projection-source" r="3"/></svg>
     <button class="back-button" data-action="back">← <span>ARCHIVE OVERVIEW</span><small>ESC</small></button>
     <div class="object-caption"><span id="object-id">NO.001</span><div>INTERNAL DATABASE</div></div>
-    <article id="detail-content" class="detail-content"></article>
+    <div id="projection-panel" class="projection-panel"><article id="detail-content" class="detail-content"></article></div>
   </section>
   <footer class="system-footer"><span><i class="status-light"></i> SESSION AUTHORIZED</span><span><span id="profile-owner">${escapeHtml(records[0].name)}</span> <i>／</i> <span id="clock">00:00:00</span></span><a href="${assetUrl("fonts/MiSans-license.pdf")}" target="_blank" rel="noopener" aria-label="MiSans 字体许可">MiSans · 字体许可 ↗</a></footer>
   <div id="pwa-update-notice" class="pwa-update-notice" role="status" hidden><span>新版本已就绪</span><button data-pwa-action="update">更新并重启 ↻</button></div>
   <div id="toast" class="toast" role="status"></div>
   <div id="loading" class="loading" role="status"><span>正在加载资料库…</span></div>
 `;
+
+const detailProjection = new DetailProjection(
+  $("#stage"),
+  $("#projection-panel"),
+  document.querySelector<SVGSVGElement>("#detail-projection")!,
+);
 
 type Mode = "archive" | "detail";
 let mode: Mode = "archive",
@@ -195,6 +203,7 @@ function fit() {
     previousLayout = layoutKey;
     scene?.resize();
   }
+  detailProjection.fit();
 }
 window.addEventListener("resize", fit);
 window.visualViewport?.addEventListener("resize", fit);
@@ -232,6 +241,8 @@ function setMode(next: Mode) {
   scene?.setMode(next);
   if (next === "detail" && previousMode !== "detail") {
     renderDetail();
+    detailProjection.fit();
+    if (scene) detailProjection.render((x, y) => scene!.projectCard(x, y));
     $("#detail-content").focus({ preventScroll: true });
   }
 }
@@ -421,6 +432,8 @@ function frame(ms: number) {
   }
   const time = ms / 1000;
   scene?.update(time);
+  if (scene && !$("#detail-ui").hidden)
+    detailProjection.render((x, y) => scene!.projectCard(x, y));
   $("#stage").style.setProperty(
     "--detail-shade",
     String(mode === "detail" ? 1 : scene?.detailVisibility ?? 0),
