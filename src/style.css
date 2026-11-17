@@ -459,23 +459,19 @@ button {
   overflow: visible;
   pointer-events: none;
 }
-.projection-beam {
-  fill: rgba(255, 247, 218, 0.13);
-  stroke: rgba(255, 252, 234, 0.3);
-  stroke-width: 1;
-  vector-effect: non-scaling-stroke;
+.detail-projection[hidden],
+.projection-panel[hidden] {
+  display: none;
 }
-.projection-rays {
+.projection-beam {
+  fill: rgba(255, 247, 218, 0.045);
+  stroke: none;
+}
+.projection-ray {
   fill: none;
   stroke: rgba(238, 229, 199, 0.5);
   stroke-width: 1;
   vector-effect: non-scaling-stroke;
-}
-.projection-source {
-  fill: rgba(255, 247, 215, 0.8);
-  stroke: rgba(255, 253, 239, 0.7);
-  stroke-width: 1;
-  filter: drop-shadow(0 0 7px rgba(255, 239, 187, 0.7));
 }
 .projection-panel {
   position: absolute;

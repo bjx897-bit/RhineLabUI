@@ -45,10 +45,10 @@ $("#stage").innerHTML = `
     <div class="archive-hint"><kbd>ENTER</kbd> 读取档案</div>
   </section>
   <section id="detail-ui" class="detail-ui" aria-label="档案内容" hidden>
-    <svg id="detail-projection" class="detail-projection" aria-hidden="true" focusable="false"><path class="projection-beam"/><path class="projection-rays"/><circle class="projection-source" r="3"/></svg>
+    <svg id="detail-projection" class="detail-projection" aria-hidden="true" focusable="false" hidden><path class="projection-beam"/><line class="projection-ray" data-corner="top-left"/><line class="projection-ray" data-corner="top-right"/><line class="projection-ray" data-corner="bottom-right"/><line class="projection-ray" data-corner="bottom-left"/></svg>
     <button class="back-button" data-action="back">← <span>ARCHIVE OVERVIEW</span><small>ESC</small></button>
     <div class="object-caption"><span id="object-id">NO.001</span><div>INTERNAL DATABASE</div></div>
-    <div id="projection-panel" class="projection-panel"><article id="detail-content" class="detail-content"></article></div>
+    <div id="projection-panel" class="projection-panel" hidden inert><article id="detail-content" class="detail-content"></article></div>
   </section>
   <footer class="system-footer"><span><i class="status-light"></i> SESSION AUTHORIZED</span><span><span id="profile-owner">${escapeHtml(records[0].name)}</span> <i>／</i> <span id="clock">00:00:00</span></span><a href="${assetUrl("fonts/MiSans-license.pdf")}" target="_blank" rel="noopener" aria-label="MiSans 字体许可">MiSans · 字体许可 ↗</a></footer>
   <div id="pwa-update-notice" class="pwa-update-notice" role="status" hidden><span>新版本已就绪</span><button data-pwa-action="update">更新并重启 ↻</button></div>
@@ -56,16 +56,19 @@ $("#stage").innerHTML = `
   <div id="loading" class="loading" role="status"><span>正在加载资料库…</span></div>
 `;
 
+const projectionPanel = $("#projection-panel");
+const projectionSvg = document.querySelector<SVGSVGElement>("#detail-projection")!;
 const detailProjection = new DetailProjection(
   $("#stage"),
-  $("#projection-panel"),
-  document.querySelector<SVGSVGElement>("#detail-projection")!,
+  projectionPanel,
+  projectionSvg,
 );
 
 type Mode = "archive" | "detail";
 let mode: Mode = "archive",
   selected = 0,
-  ready = false;
+  ready = false,
+  projectionVisible = false;
 $("#stage").dataset.mode = "archive";
 let toastTimer: ReturnType<typeof setTimeout>;
 const detailTransition = new SurfaceTransition(
@@ -212,6 +215,25 @@ matchMedia("(pointer: coarse)").addEventListener("change", fit);
 fit();
 let fileTicks: HTMLButtonElement[] = [];
 
+function hideProjection() {
+  projectionVisible = false;
+  projectionPanel.hidden = true;
+  projectionPanel.inert = true;
+  projectionSvg.setAttribute("hidden", "");
+}
+
+function revealProjection() {
+  if (mode !== "detail" || projectionVisible || !scene?.detailPresentationReady) return;
+  projectionPanel.hidden = false;
+  projectionPanel.inert = false;
+  detailProjection.fit();
+  detailProjection.render((x, y) => scene!.projectCard(x, y, 0.206));
+  projectionSvg.removeAttribute("hidden");
+  projectionVisible = true;
+  if (document.activeElement === document.body || document.activeElement === $(".back-button"))
+    $("#detail-content").focus({ preventScroll: true });
+}
+
 function setMode(next: Mode) {
   const previousMode = mode;
   rollingTitles.forEach((title) =>
@@ -231,9 +253,11 @@ function setMode(next: Mode) {
   $("#archive-ui").inert = next !== "archive";
   $("#archive-ui").setAttribute("aria-hidden", String(next !== "archive"));
   if (next === "detail" && previousMode !== "detail") {
-    // Text is ready in the same interaction, independently of the 3D motion.
+    // Keep the return control available while the disk is being extracted.
+    hideProjection();
     detailTransition.show(true);
   } else if (previousMode === "detail" && next !== "detail") {
+    hideProjection();
     detailTransition.hide(!motionActive("surfaceTransitions"));
     $(".read-file").focus({ preventScroll: true });
   }
@@ -241,9 +265,7 @@ function setMode(next: Mode) {
   scene?.setMode(next);
   if (next === "detail" && previousMode !== "detail") {
     renderDetail();
-    detailProjection.fit();
-    if (scene) detailProjection.render((x, y) => scene!.projectCard(x, y));
-    $("#detail-content").focus({ preventScroll: true });
+    $(".back-button").focus({ preventScroll: true });
   }
 }
 function select(index: number, navigation?: ArchiveNavigation) {
@@ -432,8 +454,9 @@ function frame(ms: number) {
   }
   const time = ms / 1000;
   scene?.update(time);
-  if (scene && !$("#detail-ui").hidden)
-    detailProjection.render((x, y) => scene!.projectCard(x, y));
+  revealProjection();
+  if (scene && projectionVisible)
+    detailProjection.render((x, y) => scene!.projectCard(x, y, 0.206));
   $("#stage").style.setProperty(
     "--detail-shade",
     String(mode === "detail" ? 1 : scene?.detailVisibility ?? 0),
@@ -574,6 +597,7 @@ Object.assign(window, {
       selected: records[selected].id,
       recordCount: records.length,
       categoryCount: archiveColumns.length,
+      projectionVisible,
     }),
   },
 });

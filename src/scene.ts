@@ -1854,10 +1854,10 @@ export class ArchiveScene {
     if (this.superPerformance || !this.composer) this.renderer.render(this.scene, this.camera);
     else this.composer.render();
   }
-  projectCard(x: number, y: number) {
+  projectCard(x: number, y: number, z = 0.255) {
     this.model.updateMatrixWorld(true);
     const p = this.model
-      .localToWorld(new THREE.Vector3(x, y, 0.255))
+      .localToWorld(new THREE.Vector3(x, y, z))
       .project(this.camera);
     return [(p.x + 1) * this.container.clientWidth / 2, (1 - p.y) * this.container.clientHeight / 2];
   }
@@ -1865,6 +1865,13 @@ export class ArchiveScene {
   finishDecryption() { this.decryption.finish(); }
   get detailVisibility() {
     return ease((this.detail - 0.25) / 0.55);
+  }
+  get detailPresentationReady() {
+    // Springs approach their targets asymptotically: use near-rest lift and
+    // low velocity tolerances, without waiting for the glass decryption timer.
+    return this.loaded && this.targetDetail === 1 && this.returnY === null &&
+      Math.abs(this.lift.value - INSPECTION_LIFT) <= 0.01 &&
+      Math.abs(this.lift.velocity) <= 0.05 && this.detail >= 0.995;
   }
   getStats() {
     this.model.updateMatrixWorld(true);
@@ -1938,6 +1945,8 @@ export class ArchiveScene {
       canInspect: false,
       returnPhase: this.returnY !== null ? "aligning" : "lowering",
       extraction: Math.round(this.lift.value * 1000) / 1000,
+      extractionVelocity: this.lift.velocity,
+      presentationReady: this.detailPresentationReady,
       appearance: Math.round(ease(this.lift.value / 0.4) * 1000) / 1000,
       cameraDetail: Math.round(this.detail * 1000) / 1000,
       idleGain: this.idleGain,

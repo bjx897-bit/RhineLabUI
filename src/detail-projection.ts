@@ -1,11 +1,17 @@
-/** Connect the model's projected surface to a floating document in stage space. */
+// The GLB cover spans x=-2.5..2.5, y=0..3.7. Keep its local clockwise
+// order rather than sorting screen positions, which can swap corners in perspective.
+const CORNERS = [
+  { name: "top-left", x: -2.5, y: 3.7 },
+  { name: "top-right", x: 2.5, y: 3.7 },
+  { name: "bottom-right", x: 2.5, y: 0 },
+  { name: "bottom-left", x: -2.5, y: 0 },
+] as const;
+
+/** Connect the model's four surface corners to a document in stage space. */
 export class DetailProjection {
-  private beam: SVGPathElement;
-  private rays: SVGPathElement;
-  private source: SVGCircleElement;
-  private first = [0, 0];
-  private second = [0, 0];
-  private portrait = false;
+  private beam: SVGPathElement | null;
+  private rays: SVGLineElement[];
+  private targets: number[][] = [];
   private previous = "";
 
   constructor(
@@ -13,35 +19,64 @@ export class DetailProjection {
     private panel: HTMLElement,
     private svg: SVGSVGElement,
   ) {
-    this.beam = svg.querySelector(".projection-beam")!;
-    this.rays = svg.querySelector(".projection-rays")!;
-    this.source = svg.querySelector(".projection-source")!;
+    this.beam = svg.querySelector(".projection-beam");
+    this.rays = CORNERS.map(({ name }) =>
+      svg.querySelector<SVGLineElement>(
+        `.projection-ray[data-corner="${name}"]`,
+      )!,
+    );
   }
 
   // Only measure when opening or resizing, never in the animation loop.
   fit() {
-    this.svg.setAttribute("viewBox", `0 0 ${this.stage.clientWidth} ${this.stage.clientHeight}`);
-    this.portrait = this.stage.dataset.layout === "portrait";
-    const { offsetLeft: x, offsetTop: y, offsetWidth: width, offsetHeight: height } = this.panel;
-    this.first = this.portrait ? [x + width * 0.18, y] : [x, y + height * 0.18];
-    this.second = this.portrait ? [x + width * 0.82, y] : [x, y + height * 0.82];
+    this.svg.setAttribute(
+      "viewBox",
+      `0 0 ${this.stage.clientWidth} ${this.stage.clientHeight}`,
+    );
+    const {
+      offsetLeft: x,
+      offsetTop: y,
+      offsetWidth: width,
+      offsetHeight: height,
+    } = this.panel;
+    this.targets = [
+      [x, y],
+      [x + width, y],
+      [x + width, y + height],
+      [x, y + height],
+    ];
     this.previous = "";
   }
 
   render(project: (x: number, y: number) => number[]) {
-    // The emitter stays on the model surface as the disk rises and returns.
-    const [x, y] = project(0, 2.6);
-    if (!Number.isFinite(x) || !Number.isFinite(y)) return;
-    const point = (p: number[]) => p.map(value => value.toFixed(1)).join(" ");
-    const start = point(this.portrait ? [x - 5, y] : [x, y - 5]);
-    const end = point(this.portrait ? [x + 5, y] : [x, y + 5]);
-    const first = point(this.first), second = point(this.second);
-    const shape = `M${start} L${first} L${second} L${end} Z`;
-    if (shape === this.previous) return;
-    this.previous = shape;
-    this.beam.setAttribute("d", shape);
-    this.rays.setAttribute("d", `M${start} L${first} M${end} L${second}`);
-    this.source.setAttribute("cx", x.toFixed(1));
-    this.source.setAttribute("cy", y.toFixed(1));
+    if (this.targets.length !== CORNERS.length) return;
+    // The caller projects the actual front surface (z=0.206), without moving
+    // sources toward the panel or clamping them to screen bounds.
+    const sources = CORNERS.map(({ x, y }) => project(x, y));
+    if (sources.some(([x, y]) => !Number.isFinite(x) || !Number.isFinite(y)))
+      return;
+    const format = ([x, y]: number[]) => [x.toFixed(1), y.toFixed(1)];
+    const starts = sources.map(format);
+    const signature = starts.map((point) => point.join(" ")).join(";");
+    if (signature === this.previous) return;
+    this.previous = signature;
+    const ends = this.targets.map(format);
+    this.rays.forEach((ray, index) => {
+      const [x1, y1] = starts[index];
+      const [x2, y2] = ends[index];
+      ray.setAttribute("x1", x1);
+      ray.setAttribute("y1", y1);
+      ray.setAttribute("x2", x2);
+      ray.setAttribute("y2", y2);
+    });
+    this.beam?.setAttribute(
+      "d",
+      starts
+        .map((start, index) => {
+          const next = (index + 1) % CORNERS.length;
+          return `M${start.join(" ")} L${ends[index].join(" ")} L${ends[next].join(" ")} L${starts[next].join(" ")} Z`;
+        })
+        .join(" "),
+    );
   }
 }

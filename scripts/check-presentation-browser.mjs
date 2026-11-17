@@ -199,6 +199,96 @@ async function checkDetailDisplayOnly(page) {
       );
   }
 }
+async function openProjection(page) {
+  const opening = await page.evaluate(() => {
+    document.querySelector(".read-file").click();
+    const panel = document.querySelector("#projection-panel");
+    const projection = document.querySelector("#detail-projection");
+    const download = document.querySelector(".export-button");
+    download.focus();
+    return {
+      mode: rhine.stats().mode,
+      visible: rhine.stats().projectionVisible,
+      hidden: panel.hidden,
+      inert: panel.inert,
+      projectionHidden: projection.hasAttribute("hidden"),
+      exportFocused: document.activeElement === download,
+      backAvailable:
+        !document.querySelector("#detail-ui").inert &&
+        document.querySelector(".back-button").checkVisibility(),
+    };
+  });
+  assert.deepEqual(opening, {
+    mode: "detail",
+    visible: false,
+    hidden: true,
+    inert: true,
+    projectionHidden: true,
+    exportFocused: false,
+    backAvailable: true,
+  });
+}
+
+async function checkProjectionRays(page) {
+  const rays = await page
+    .locator("#detail-projection line.projection-ray")
+    .evaluateAll((lines) =>
+      lines.map((line) => ({
+        corner: line.dataset.corner,
+        coordinates: ["x1", "y1", "x2", "y2"].map((name) =>
+          Number(line.getAttribute(name) ?? NaN),
+        ),
+      })),
+    );
+  assert.deepEqual(
+    rays.map(({ corner }) => corner),
+    ["top-left", "top-right", "bottom-right", "bottom-left"],
+  );
+  rays.forEach(({ coordinates }) =>
+    assert.ok(coordinates.every(Number.isFinite)),
+  );
+  assert.equal(
+    new Set(rays.map(({ coordinates }) => coordinates.slice(0, 2).join(",")))
+      .size,
+    4,
+    "four distinct model corners",
+  );
+  assert.equal(
+    new Set(rays.map(({ coordinates }) => coordinates.slice(2).join(","))).size,
+    4,
+    "four distinct panel corners",
+  );
+  assert.equal(
+    await page.locator("#detail-projection circle, .projection-source").count(),
+    0,
+  );
+  const targets = await page.evaluate(() => {
+    const panel = document
+      .querySelector("#projection-panel")
+      .getBoundingClientRect();
+    const inverse = document
+      .querySelector("#detail-projection")
+      .getScreenCTM()
+      .inverse();
+    return [
+      [panel.left, panel.top],
+      [panel.right, panel.top],
+      [panel.right, panel.bottom],
+      [panel.left, panel.bottom],
+    ].map(([x, y]) => {
+      const point = new DOMPoint(x, y).matrixTransform(inverse);
+      return [point.x, point.y];
+    });
+  });
+  rays.forEach(({ corner, coordinates }, index) =>
+    targets[index].forEach((value, axis) =>
+      assert.ok(
+        Math.abs(coordinates[axis + 2] - value) <= 1,
+        `${corner} ray reaches its panel corner`,
+      ),
+    ),
+  );
+}
 try {
   for (const legacy of [false, true]) {
     const context = await browser.newContext({
@@ -389,19 +479,87 @@ try {
       assert.equal(await page.evaluate(() => rhine.stats().selected), initial);
     }
     if (!legacy) await capture(page, "archive-desktop");
-    // One browser task: verify opening exposes the whole document synchronously,
-    // before an animation frame or model decryption can reveal it later.
+    await page.evaluate(() => {
+      window.projectionSamples = [];
+      window.projectionSampleTimer = setInterval(() => {
+        const stats = rhine.stats();
+        const panel = document.querySelector("#projection-panel");
+        window.projectionSamples.push({
+          mode: stats.mode,
+          ready: stats.presentationReady,
+          extraction: stats.extraction,
+          cameraDetail: stats.cameraDetail,
+          visible: stats.projectionVisible,
+          hidden: panel.hidden,
+          inert: panel.inert,
+          projectionHidden: document
+            .querySelector("#detail-projection")
+            .hasAttribute("hidden"),
+        });
+      }, 25);
+    });
+    await openProjection(page);
+    if (legacy) {
+      await page.waitForFunction(
+        () =>
+          rhine.stats().extraction > 0.5 && !rhine.stats().presentationReady,
+      );
+      await page.keyboard.press("Escape");
+      assert.equal(await page.evaluate(() => rhine.stats().mode), "archive");
+      assert.equal(
+        await page
+          .locator("#projection-panel")
+          .evaluate((panel) => panel.hidden && panel.inert),
+        true,
+      );
+      await openProjection(page);
+    }
+    await page.waitForFunction(
+      () => rhine.stats().presentationReady && rhine.stats().projectionVisible,
+    );
+    const samples = await page.evaluate(() => {
+      clearInterval(window.projectionSampleTimer);
+      return window.projectionSamples;
+    });
+    if (legacy)
+      assert.ok(
+        samples.some((sample) => sample.mode === "detail" && !sample.ready),
+        "normal motion has an extraction phase",
+      );
+    for (const sample of samples) {
+      if (!sample.visible || sample.mode !== "detail" || !sample.ready)
+        assert.ok(
+          !sample.visible &&
+            sample.hidden &&
+            sample.inert &&
+            sample.projectionHidden,
+          "projection stays hidden before extraction completes, including cancellation/reopening",
+        );
+      if (sample.visible)
+        assert.ok(
+          sample.ready &&
+            sample.mode === "detail" &&
+            Math.abs(sample.extraction - 4.05) <= 0.011 &&
+            sample.cameraDetail >= 0.995 &&
+            !sample.hidden &&
+            !sample.inert &&
+            !sample.projectionHidden,
+        );
+    }
     const opened = await page.evaluate(() => {
-      document.querySelector(".read-file").click();
       const content = document.querySelector("#detail-content");
       const detail = document.querySelector("#detail-ui");
+      const panel = document.querySelector("#projection-panel");
       const fields = content.querySelector(".profile-fields");
       return {
         mode: rhine.stats().mode,
-        hidden: detail.hidden,
+        hidden: panel.hidden,
+        projectionHidden: document
+          .querySelector("#detail-projection")
+          .hasAttribute("hidden"),
         surfaceOpacity: getComputedStyle(detail).opacity,
         opacity: getComputedStyle(content).opacity,
-        inert: content.inert || detail.inert,
+        inert: content.inert || panel.inert || detail.inert,
         fieldTag: fields?.tagName,
         labels: Array.from(fields?.querySelectorAll("dt") ?? [], (el) =>
           el.textContent.trim(),
@@ -414,6 +572,7 @@ try {
     assert.deepEqual(opened, {
       mode: "detail",
       hidden: false,
+      projectionHidden: false,
       surfaceOpacity: "1",
       opacity: "1",
       inert: false,
@@ -422,9 +581,10 @@ try {
       values: profileFields.map(([, value]) => value),
     });
     assert.equal(await page.locator(removed).count(), 0);
+    await checkProjectionRays(page);
     await checkRemovedShortcuts(page);
     checks.push(
-      `${legacy ? "Normal" : "Reduced"} motion: one personal file; all four fields appear immediately without tabs or document decryption`,
+      `${legacy ? "Normal" : "Reduced"} motion: projection and full profile appear only after extraction, with four corner rays and no document decryption`,
     );
     if (!legacy) {
       await checkDetailDisplayOnly(page);
@@ -450,6 +610,18 @@ try {
     }
     await page.keyboard.press("Escape");
     assert.equal(await page.evaluate(() => rhine.stats().mode), "archive");
+    assert.equal(
+      await page
+        .locator("#projection-panel")
+        .evaluate((panel) => panel.hidden && panel.inert),
+      true,
+    );
+    assert.equal(
+      await page
+        .locator("#detail-projection")
+        .evaluate((svg) => svg.hasAttribute("hidden")),
+      true,
+    );
     await page.waitForFunction(() => {
       const stats = rhine.stats();
       return (
