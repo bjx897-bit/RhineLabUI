@@ -58,13 +58,10 @@
 :is([data-layout="compact"], [data-layout="portrait"]) .detail-content h2 { font-size: 27px; margin: 14px 0 8px; letter-spacing: -.6px; overflow-wrap: anywhere; }
 :is([data-layout="compact"], [data-layout="portrait"]) .detail-title-cn { font-size: 18px; gap: 10px; flex-wrap: wrap; }
 :is([data-layout="compact"], [data-layout="portrait"]) .detail-rule { margin-top: 18px; }
-:is([data-layout="compact"], [data-layout="portrait"]) .metadata { margin: 18px 0; gap: 14px; }
-:is([data-layout="compact"], [data-layout="portrait"]) .metadata dd { font-size: 13px; margin-top: 5px; }
-:is([data-layout="compact"], [data-layout="portrait"]) .detail-tabs { gap: 16px; }
-:is([data-layout="compact"], [data-layout="portrait"]) .detail-tabs button { min-height: 44px; padding: 8px 0; font-size: 9px; }
-:is([data-layout="compact"], [data-layout="portrait"]) .detail-tabs button span { font-size: 12px; margin-left: 4px; }
-:is([data-layout="compact"], [data-layout="portrait"]) .tab-panel { height: auto; overflow: visible; padding-top: 12px; }
-:is([data-layout="compact"], [data-layout="portrait"]) .tab-panel p { font-size: 15px; text-align: left; }
+:is([data-layout="compact"], [data-layout="portrait"]) .profile-fields { margin: 18px 0; }
+:is([data-layout="compact"], [data-layout="portrait"]) .profile-fields > div { grid-template-columns: 64px minmax(0, 1fr); gap: 12px; padding: 12px 0; }
+:is([data-layout="compact"], [data-layout="portrait"]) .profile-fields dt { font-size: 11px; }
+:is([data-layout="compact"], [data-layout="portrait"]) .profile-fields dd { font-size: 15px; }
 :is([data-layout="compact"], [data-layout="portrait"]) .detail-actions { gap: 12px; }
 :is([data-layout="compact"], [data-layout="portrait"]) .export-button { width: 88px; font-size: 10px; }
 :is([data-layout="compact"], [data-layout="portrait"]) .detail-footnote { gap: 12px; line-height: 1.8; flex-wrap: wrap; }

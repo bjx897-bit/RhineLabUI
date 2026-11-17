@@ -7,6 +7,7 @@ import {
   archiveColumns,
   columnFiles,
   fileLocation,
+  physicalFileLocation,
   fileAtSlot,
 } from "../src/data.ts";
 import {
@@ -17,24 +18,25 @@ import {
   damp,
 } from "../src/motion.ts";
 
-assert.equal(records.length, 40);
+assert.equal(records.length, 1);
+assert.equal(archiveColumns.length, 1);
 const slots = new Set();
 for (let lane = 0; lane < archiveColumns.length; lane++) {
   const files = columnFiles(lane);
-  assert.equal(files.length, 8, "Every column has eight readable files");
+  assert.equal(files.length, 1, "The personal category has one readable file");
   for (const index of files) {
     const location = fileLocation(index);
     assert.equal(location.lane, lane);
-    assert.equal(fileAtSlot(location.slot), index);
+    const physical = physicalFileLocation(index);
+    assert.equal(fileAtSlot(physical.slot), index);
     assert.ok(location.row >= 0 && location.row < 32);
-    slots.add(location.slot);
+    slots.add(physical.slot);
     const record = records[index];
-    assert.ok(record.abstract.length > 70);
-    assert.equal(record.findings.length, 3);
-    assert.ok(new URL(record.source).protocol === "https:");
+    for (const field of ["name", "major", "school", "targetRole"])
+      assert.ok(typeof record[field] === "string" && record[field].trim());
   }
 }
-assert.equal(slots.size, 40, "No two documents occupy the same slot");
+assert.deepEqual([...slots], [76], "The single document keeps the calibrated central slot");
 const crests = Array.from({ length: 5 }, (_, lane) =>
   Math.max(
     ...Array.from({ length: 32 }, (_, row) => cinematicField(row, lane, 25.4)),
@@ -96,7 +98,7 @@ console.log(
   JSON.stringify(
     {
       documents: records.length,
-      perColumn: 8,
+      perColumn: 1,
       crestsAt760: crests,
       maxFrameDelta: maxDelta,
       modelHeight: height,

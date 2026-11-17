@@ -1,5 +1,8 @@
 import assert from "node:assert/strict";
-import { columnFiles, fileLocation } from "../src/data.ts";
+import {
+  archiveColumns, columnAtLane, columnFiles, fileAtSlot, fileLocation,
+  physicalFileLocation, records,
+} from "../src/data.ts";
 import {
   fileAtCell,
   selectionCell,
@@ -11,30 +14,40 @@ import {
   wrap,
 } from "../src/archive-loop.ts";
 
-// The same eight files and five column categories recur on both sides of zero.
+// The visual pool can cover many physical cells without inventing documents.
 for (let lane = -23; lane <= 23; lane++) {
-  const files = columnFiles(wrap(lane, 5));
+  const files = columnFiles(columnAtLane(lane));
+  assert.ok(files.length > 0, "Every physical lane resolves to a populated category");
   for (let row = -35; row <= 35; row++) {
-    assert.equal(fileAtCell({ lane, row }), files[wrap(row - 12, 8)]);
+    assert.equal(fileAtCell({ lane, row }), files[wrap(row - 12, files.length)]);
+    assert.ok(Number.isInteger(fileAtSlot(lane * LOOP_ROWS + row)));
   }
 }
+assert.equal(records.length, 1);
+assert.equal(archiveColumns.length, 1);
+assert.equal(fileLocation(0).lane, 0, "The UI has one logical category");
+assert.deepEqual(physicalFileLocation(0), { lane: 2, row: 12, slot: 76 },
+  "A smaller library retains the original physical anchor and camera framing");
+assert.equal(fileAtSlot(76), 0, "The original center slot resolves to the only record");
+assert.deepEqual(selectionCell(0, { lane: 2, row: 12 }, { cell: { lane: -42, row: 89 } }),
+  { lane: 2, row: 12 }, "Picking scenery cannot move the only record to a duplicate mesh");
 let checks = 0;
 for (const direction of [-1, 1]) {
   let cell = { lane: 2, row: 12 };
   let index = fileAtCell(cell);
-  const memory = Array.from({ length: 5 }, (_, lane) => columnFiles(lane)[0]);
+  const memory = archiveColumns.map((_, lane) => columnFiles(lane)[0]);
   for (let step = 0; step < 10000; step++) {
     const axis = step % 17 < 10 ? "row" : "lane";
     const lane = fileLocation(index).lane;
     if (axis === "row") {
       const files = columnFiles(lane);
       index = files[wrap(files.indexOf(index) + direction, files.length)];
-    } else index = memory[wrap(lane + direction, 5)];
+    } else index = memory[wrap(lane + direction, archiveColumns.length)];
     const next = selectionCell(index, cell, { axis, direction });
     assert.equal(
       next[axis] - cell[axis],
-      direction,
-      "Crossing a seam must move exactly one cell in the requested direction",
+      records.length === 1 ? 0 : direction,
+      "A single record stays anchored rather than navigating between scenery copies",
     );
     assert.equal(
       fileAtCell(next),

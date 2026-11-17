@@ -495,7 +495,7 @@ button {
   top: 289px;
   width: 636px;
   pointer-events: auto;
-  opacity: 0;
+  opacity: 1;
   outline: none !important;
 }
 .detail-kicker {
@@ -532,114 +532,29 @@ button {
   background: #20221d;
   margin-top: 28px;
 }
-.metadata {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 25px 42px;
-  margin: 28px 0 34px;
+.profile-fields {
+  margin: 24px 0;
 }
-.metadata dt {
-  font-size: 9px;
+.profile-fields > div {
+  display: grid;
+  grid-template-columns: 88px minmax(0, 1fr);
+  align-items: baseline;
+  gap: 20px;
+  padding: 16px 0;
+  border-bottom: 1px solid #bdb8ad;
+}
+.profile-fields dt {
+  font-size: 12px;
+  line-height: 1.65;
   letter-spacing: 0.7px;
   color: #807b70;
 }
-.metadata dd {
-  margin: 8px 0 0;
-  font-size: 14px;
-}
-.metadata dd i {
-  display: inline-block;
-  width: 5px;
-  height: 5px;
-  background: #8b8f75;
-  margin-right: 8px;
-  vertical-align: middle;
-}
-.detail-tabs {
-  position: relative;
-  display: flex;
-  gap: 34px;
-  border-bottom: 1px solid #bdb8ad;
-}
-.detail-tabs button {
-  font-size: 10px;
-  color: #989184;
-  position: relative;
-  padding: 0 0 14px;
-}
-.detail-tabs button span {
-  font-size: 13px;
-  margin-left: 8px;
-}
-.detail-tabs button.active {
-  color: #191c16;
-}
-.tab-indicator {
-  position: absolute;
-  bottom: -1px;
-  left: 0;
-  width: 1px;
-  height: 2px;
-  background: #25281e;
-  transform-origin: left center;
-  pointer-events: none;
-  transition: transform 180ms cubic-bezier(0.22, 1, 0.36, 1);
-}
-.reduce-surfaces .tab-indicator {
-  transition: none;
-}
-.tab-panel {
-  height: 189px;
-  padding-top: 22px;
-  overflow-y: auto;
-  overflow-x: hidden;
-  scrollbar-width: thin;
-  scrollbar-color: #bbb4a6 transparent;
-}
-.panel-label {
-  font-size: 9px;
-  letter-spacing: 1px;
-  color: #888074;
-}
-.tab-panel p {
-  font-size: 15px;
-  line-height: 1.95;
-  margin: 14px 0 0;
-  color: #5a584e;
-  text-align: justify;
-}
-.research-notes {
-  margin: 12px 0 0;
-  padding: 0;
-  list-style: none;
-}
-.research-notes li {
-  display: flex;
-  gap: 14px;
-  font-size: 13px;
-  line-height: 1.7;
-  margin: 8px 0;
-  color: #5a584e;
-}
-.research-notes li span {
-  font-size: 10px;
-  color: #a38e72;
-  line-height: 22px;
-}
-.log-row {
-  display: flex;
-  justify-content: space-between;
-  margin-top: 21px;
-  font-size: 10px;
-  gap: 12px;
-}
-.log-row b {
-  font-size: 9px;
-  font-weight: 400;
-  color: #7a8163;
-}
-.tab-panel .log-note {
-  font-size: 13px;
+.profile-fields dd {
+  min-width: 0;
+  margin: 0;
+  font-size: 18px;
+  line-height: 1.65;
+  overflow-wrap: anywhere;
 }
 .detail-actions {
   display: flex;
@@ -870,29 +785,6 @@ button {
   animation: none;
   width: 100%;
 }
-/* Reading sizes for the extended research workspace. */
-.metadata dt {
-  font-size: 11px;
-}
-.metadata dd {
-  font-size: 17px;
-}
-.tab-panel p {
-  font-size: 18px;
-  line-height: 1.8;
-}
-.research-notes li {
-  font-size: 16px;
-}
-.panel-label {
-  font-size: 11px;
-}
-.detail-tabs button span {
-  font-size: 15px;
-}
-.tab-panel .log-note {
-  font-size: 16px;
-}
 .cinema-caption {
   font-size: 24px;
   color: #fff;
@@ -966,7 +858,7 @@ button {
 #column-name,
 #hover-title,
 #archive-category,
-#selected-clearance {
+#selected-role {
   flex: none;
   --rn-blur: 0.2;
   --rn-edge-fade: 0.08em;

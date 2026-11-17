@@ -1,7 +1,5 @@
 import { createRollingClock } from "./rolling-clock";
 import { InspectionOverlay } from "./inspection-overlay";
-import { DocumentDecryption } from "./document-decryption";
-import "./document-decryption.css";
 import "./decryption.css";
 import { escapeHtml } from "./html";
 import { qualityPresets } from "./render-quality";
@@ -17,7 +15,7 @@ import {
   createRollingText,
 } from "@kitlangton/rolling-number";
 import { ArchiveScene } from "./scene";
-import { ContentTransition, SurfaceTransition } from "./ui-transitions";
+import { SurfaceTransition } from "./ui-transitions";
 import { wrap, type ArchiveNavigation } from "./archive-loop";
 import { records, archiveColumns, columnFiles, fileLocation } from "./data";
 import {
@@ -38,19 +36,19 @@ $("#stage").innerHTML = `
   <svg id="inspection-marks" viewBox="0 0 1920 1080" aria-hidden="true"><path id="inspection-lines"/><g id="inspection-corners"></g><circle id="inspection-point" r="1.8"/></svg>
   <div id="inspection-text" aria-hidden="true">CONFIDENTIALITY:<strong>GENERAL BUSINESS USE</strong></div>
   <section id="archive-ui" class="archive-ui" aria-label="档案选择">
-    <div class="archive-callout"><div class="eyebrow">INTERNAL DATABASE <span>／</span> <span id="archive-category">机构档案</span></div><button class="file-title" data-action="open">FILE NUMBER: <span id="selected-id">X-<span id="selected-code">001</span></span><span class="file-open">↗</span></button><div class="callout-rule"><i></i></div><div class="file-summary"><span id="selected-title">莱茵生命</span><span id="selected-clearance">BUSINESS AREA</span></div><button class="read-file" data-action="open">ACCESS FILE <span>→</span></button></div>
+    <div class="archive-callout"><div class="eyebrow">PERSONAL ARCHIVE <span>／</span> <span id="archive-category">${escapeHtml(records[0].category)}</span></div><button class="file-title" data-action="open">FILE NUMBER: <span id="selected-id">X-<span id="selected-code">001</span></span><span class="file-open">↗</span></button><div class="callout-rule"><i></i></div><div class="file-summary"><span id="selected-title">${escapeHtml(records[0].title)}</span><span id="selected-role">${escapeHtml(records[0].targetRole)}</span></div><button class="read-file" data-action="open">ACCESS FILE <span>→</span></button></div>
     <div id="hover-label" class="hover-label" hidden>X-<span id="hover-code">001</span> / <span id="hover-title"></span></div>
-    <div class="archive-counter"><span class="tiny-label">ARCHIVE / SELECT</span><div><span id="selected-number">01</span><i>/</i><span class="count-total">12</span></div></div>
+    <div class="archive-counter"><span class="tiny-label">ARCHIVE / SELECT</span><div><span id="selected-number">01</span><i>/</i><span class="count-total">01</span></div></div>
     <div class="archive-navigation"><button data-action="prev" aria-label="上一个档案">↑</button><div id="file-ticks" class="file-ticks"></div><button data-action="next" aria-label="下一个档案">↓</button></div>
-    <div class="column-navigation"><button data-action="column-prev" aria-label="上一列">←</button><div><span id="column-number">COLUMN <span id="column-index">03</span> / 05</span><strong id="column-name">机构档案</strong></div><button data-action="column-next" aria-label="下一列">→</button></div>
-    <div class="archive-hint"><kbd>←</kbd> <kbd>→</kbd> 切换列 <span>／</span> <kbd>↑</kbd> <kbd>↓</kbd> 前后档案 <span>／</span> <kbd>ENTER</kbd> 读取</div>
+    <div class="column-navigation"><button data-action="column-prev" aria-label="上一分类">←</button><div><span id="column-number">CATEGORY <span id="column-index">01</span> / ${String(archiveColumns.length).padStart(2, "0")}</span><strong id="column-name">${escapeHtml(archiveColumns[0])}</strong></div><button data-action="column-next" aria-label="下一分类">→</button></div>
+    <div class="archive-hint"><kbd>ENTER</kbd> 读取档案</div>
   </section>
   <section id="detail-ui" class="detail-ui" aria-label="档案内容" hidden>
     <button class="back-button" data-action="back">← <span>ARCHIVE OVERVIEW</span><small>ESC</small></button>
     <div class="object-caption"><span id="object-id">NO.001</span><div>INTERNAL DATABASE</div></div>
     <article id="detail-content" class="detail-content"></article>
   </section>
-  <footer class="system-footer"><span><i class="status-light"></i> SESSION AUTHORIZED</span><span>JOYCE MOORE <i>／</i> <span id="clock">00:00:00</span></span><a href="${assetUrl("fonts/MiSans-license.pdf")}" target="_blank" rel="noopener" aria-label="MiSans 字体许可">MiSans · 字体许可 ↗</a></footer>
+  <footer class="system-footer"><span><i class="status-light"></i> SESSION AUTHORIZED</span><span><span id="profile-owner">${escapeHtml(records[0].name)}</span> <i>／</i> <span id="clock">00:00:00</span></span><a href="${assetUrl("fonts/MiSans-license.pdf")}" target="_blank" rel="noopener" aria-label="MiSans 字体许可">MiSans · 字体许可 ↗</a></footer>
   <div id="pwa-update-notice" class="pwa-update-notice" role="status" hidden><span>新版本已就绪</span><button data-pwa-action="update">更新并重启 ↻</button></div>
   <div id="toast" class="toast" role="status"></div>
   <div id="loading" class="loading" role="status"><span>正在加载资料库…</span></div>
@@ -60,7 +58,6 @@ type Mode = "archive" | "detail";
 let mode: Mode = "archive",
   selected = 0,
   ready = false;
-let activeTab = "overview";
 $("#stage").dataset.mode = "archive";
 let toastTimer: ReturnType<typeof setTimeout>;
 const detailTransition = new SurfaceTransition(
@@ -69,8 +66,6 @@ const detailTransition = new SurfaceTransition(
   180,
   180,
 );
-const tabTransition = new ContentTransition();
-let pendingDetailFocus = false;
 // Presentation configuration is fixed; legacy browser settings cannot restore
 // sound, the opening, or the full rendering pipeline.
 const motion = createMotionPreferences(
@@ -78,6 +73,7 @@ const motion = createMotionPreferences(
   matchMedia("(prefers-reduced-motion: reduce)").matches,
 );
 motion.boot = false;
+motion.documentReveal = false;
 const prefs = {
   motion,
   motionPreset: motionPresetFor(motion),
@@ -106,7 +102,7 @@ const fileCounter = createRollingNumber($("#selected-number"), {
 });
 const columnCounter = createRollingNumber($("#column-index"), {
   ...numberOptions,
-  value: 3,
+  value: 1,
 });
 const codeOptions = {
   ...numberOptions,
@@ -135,16 +131,16 @@ const categoryTitle = createRollingText($("#archive-category"), {
   ...textOptions,
   text: $("#archive-category").textContent ?? "",
 });
-const clearanceTitle = createRollingText($("#selected-clearance"), {
+const roleTitle = createRollingText($("#selected-role"), {
   ...textOptions,
-  text: $("#selected-clearance").textContent ?? "",
+  text: $("#selected-role").textContent ?? "",
 });
 const rollingTitles = [
   selectionTitle,
   columnTitle,
   hoverTitle,
   categoryTitle,
-  clearanceTitle,
+  roleTitle,
 ];
 const selectedCode = createRollingNumber($("#selected-code"), codeOptions);
 const hoverCode = createRollingNumber($("#hover-code"), codeOptions);
@@ -153,14 +149,7 @@ const loading = $("#loading");
 $("#viewport").append(loading);
 $("#stage").inert = true;
 let scene: ArchiveScene | undefined;
-const accessLog: { id: string; time: string }[] = [];
 const columnMemory = archiveColumns.map((_, lane) => columnFiles(lane)[0]);
-function recordAccess() {
-  accessLog.unshift({
-    id: records[selected].id,
-    time: new Date().toLocaleTimeString("en-GB"),
-  });
-}
 function effectiveRenderQuality() {
   return { ...prefs.rendering, ...superPerformanceQuality };
 }
@@ -206,28 +195,13 @@ function fit() {
     previousLayout = layoutKey;
     scene?.resize();
   }
-  // Re-measure line covers and tab underline after wrapping changes.
-  requestAnimationFrame(() => {
-    documentDecryption.refresh();
-    const tab = document.querySelector<HTMLElement>(
-      ".detail-tabs button.active",
-    );
-    const indicator = document.querySelector<HTMLElement>(".tab-indicator");
-    if (tab && indicator)
-      indicator.style.transform = `translateX(${tab.offsetLeft}px) scaleX(${tab.offsetWidth})`;
-  });
 }
 window.addEventListener("resize", fit);
 window.visualViewport?.addEventListener("resize", fit);
 window.visualViewport?.addEventListener("scroll", fit);
 matchMedia("(pointer: coarse)").addEventListener("change", fit);
 fit();
-$("#file-ticks").innerHTML = columnFiles(fileLocation(selected).lane)
-  .map((index) => `<button data-select="${index}"></button>`)
-  .join("");
-const fileTicks = [
-  ...$("#file-ticks").querySelectorAll<HTMLButtonElement>("button"),
-];
+let fileTicks: HTMLButtonElement[] = [];
 
 function setMode(next: Mode) {
   const previousMode = mode;
@@ -241,17 +215,16 @@ function setMode(next: Mode) {
     hoverCode.finish();
     $("#hover-label").hidden = true;
   }
-  if (next === "detail" && previousMode !== "detail") recordAccess();
   mode = next;
   $("#stage").dataset.mode = next;
+  $("#stage").style.setProperty("--detail-shade", String(next === "detail" ? 1 : scene?.detailVisibility ?? 0));
   if (previousMode !== next) fit();
   $("#archive-ui").inert = next !== "archive";
   $("#archive-ui").setAttribute("aria-hidden", String(next !== "archive"));
   if (next === "detail" && previousMode !== "detail") {
-    detailTransition.show(!motionActive("surfaceTransitions"));
+    // Text is ready in the same interaction, independently of the 3D motion.
+    detailTransition.show(true);
   } else if (previousMode === "detail" && next !== "detail") {
-    pendingDetailFocus = false;
-    tabTransition.cancel();
     detailTransition.hide(!motionActive("surfaceTransitions"));
     $(".read-file").focus({ preventScroll: true });
   }
@@ -259,14 +232,13 @@ function setMode(next: Mode) {
   scene?.setMode(next);
   if (next === "detail" && previousMode !== "detail") {
     renderDetail();
-    pendingDetailFocus = true;
+    $("#detail-content").focus({ preventScroll: true });
   }
 }
 function select(index: number, navigation?: ArchiveNavigation) {
   selected = (index + records.length) % records.length;
   columnMemory[fileLocation(selected).lane] = selected;
   if (mode === "detail") setMode("archive");
-  activeTab = "overview";
   scene?.select(selected, navigation);
   updateSelection(navigation);
 }
@@ -279,6 +251,7 @@ function stepFile(direction: number) {
   );
 }
 function stepColumn(direction: number) {
+  if (archiveColumns.length < 2) return;
   const lane = fileLocation(selected).lane;
   const next = wrap(lane + direction, archiveColumns.length);
   select(columnMemory[next], { axis: "lane", direction });
@@ -291,8 +264,8 @@ function updateSelection(navigation?: ArchiveNavigation) {
     text: r.title,
     animated: motionActive("rollingText") && mode === "archive",
   });
-  clearanceTitle.update({
-    text: r.clearance,
+  roleTitle.update({
+    text: r.targetRole,
     animated: motionActive("rollingText") && mode === "archive",
   });
   categoryTitle.update({
@@ -331,8 +304,15 @@ function updateSelection(navigation?: ArchiveNavigation) {
     text: archiveColumns[lane],
     animated: motionActive("rollingText") && mode === "archive",
   });
-  $<HTMLButtonElement>('[data-action="column-prev"]').disabled = false;
-  $<HTMLButtonElement>('[data-action="column-next"]').disabled = false;
+  $("#profile-owner").textContent = r.name;
+  for (const action of ["column-prev", "column-next"])
+    $<HTMLButtonElement>(`[data-action="${action}"]`).disabled = archiveColumns.length < 2;
+  for (const action of ["prev", "next"])
+    $<HTMLButtonElement>(`[data-action="${action}"]`).disabled = files.length < 2;
+  if (fileTicks.length !== files.length) {
+    $("#file-ticks").innerHTML = files.map(() => "<button></button>").join("");
+    fileTicks = [...$("#file-ticks").querySelectorAll<HTMLButtonElement>("button")];
+  }
   fileTicks.forEach((button, slot) => {
     const index = files[slot],
       record = records[index];
@@ -341,6 +321,7 @@ function updateSelection(navigation?: ArchiveNavigation) {
     button.title = `${record.id} · ${record.title}`;
     button.classList.toggle("selected", index === selected);
     button.setAttribute("aria-pressed", String(index === selected));
+    button.disabled = files.length < 2;
   });
 }
 function openFile() {
@@ -348,66 +329,23 @@ function openFile() {
   setMode("detail");
 }
 function renderDetail() {
-  tabTransition.cancel();
   const r = records[selected];
   $("#object-id").textContent = "NO." + String(selected + 1).padStart(3, "0");
   $("#detail-content").innerHTML = `
-  <div class="detail-kicker"><span>FILE ${r.id}</span><span>${escapeHtml(r.clearance)}</span></div>
+  <div class="detail-kicker"><span>FILE ${escapeHtml(r.id)}</span><span>${escapeHtml(r.category)}</span></div>
   <h2>${escapeHtml(r.en)}</h2><div class="detail-title-cn">${escapeHtml(r.title)}<span>${escapeHtml(r.category)}</span></div>
   <div class="detail-rule"></div>
-  <dl class="metadata"><div><dt>DEPARTMENT / 科室</dt><dd>${escapeHtml(r.department)}</dd></div><div><dt>COLLECTION / 编目范围</dt><dd>${escapeHtml(r.date)}</dd></div><div><dt>RELATED / 相关人物</dt><dd>${escapeHtml(r.lead)}</dd></div><div><dt>STATUS / 状态</dt><dd><i></i>${r.clearance === "RESTRICTED" ? "目录访问" : "已归档 · 可读取"}</dd></div></dl>
-  <div class="detail-tabs" role="tablist"><button id="tab-overview" class="active" role="tab" aria-controls="tab-panel" aria-selected="true" data-tab="overview">01 <span>概述</span></button><button id="tab-notes" role="tab" aria-controls="tab-panel" aria-selected="false" data-tab="notes">02 <span>研究记录</span></button><button id="tab-history" role="tab" aria-controls="tab-panel" aria-selected="false" data-tab="history">03 <span>访问日志</span></button><i class="tab-indicator" aria-hidden="true"></i></div>
-  <div id="tab-panel" class="tab-panel" role="tabpanel">${overview()}</div>
+  <dl class="profile-fields">
+    <div><dt>姓名</dt><dd>${escapeHtml(r.name)}</dd></div>
+    <div><dt>专业</dt><dd>${escapeHtml(r.major)}</dd></div>
+    <div><dt>学校</dt><dd>${escapeHtml(r.school)}</dd></div>
+    <div><dt>意向岗位</dt><dd>${escapeHtml(r.targetRole)}</dd></div>
+  </dl>
   <div class="detail-actions"><a class="export-button" href="${assetUrl(`archives/RHINE-LAB-${r.id}.txt`)}" download="RHINE-LAB-${r.id}.txt" aria-label="导出 ${r.id} 档案">EXPORT <span>↓</span></a></div>
-  <div class="detail-footnote"><a href="${escapeHtml(r.source)}" target="_blank" rel="noopener">设定参考 ↗</a><span>${String(selected + 1).padStart(3, "0")} / ${String(records.length).padStart(3, "0")}</span></div>`;
+  <div class="detail-footnote"><span>${String(selected + 1).padStart(3, "0")} / ${String(records.length).padStart(3, "0")}</span></div>`;
   $("#detail-content").setAttribute("tabindex", "-1");
-  documentDecryption.reset(
-    $("#detail-content"),
-    !motionActive("documentReveal") ||
-      !scene ||
-      scene.decryptionFrame.phase === "clear",
-  );
-  setTab(activeTab, false);
-}
-function overview() {
-  return `<div class="panel-label">ABSTRACT / 摘要</div><p>${escapeHtml(records[selected].abstract)}</p>`;
-}
-function setTab(tab: string, animate = true) {
-  if (animate && tab === activeTab) return;
-  activeTab = tab;
-  document.querySelectorAll("[data-tab]").forEach((b) => {
-    const active = (b as HTMLElement).dataset.tab === tab;
-    b.classList.toggle("active", active);
-    b.setAttribute("aria-selected", String(active));
-    b.setAttribute("tabindex", active ? "0" : "-1");
-  });
-  const r = records[selected];
-  const tabButton = $<HTMLButtonElement>(`[data-tab="${tab}"]`);
-  const indicator = $(".tab-indicator");
-  indicator.style.transition =
-    animate && motionActive("surfaceTransitions") ? "" : "none";
-  indicator.style.transform = `translateX(${tabButton.offsetLeft}px) scaleX(${tabButton.offsetWidth})`;
-  $("#tab-panel").setAttribute("aria-labelledby", tabButton.id);
-  $("#tab-panel").innerHTML =
-    tab === "overview"
-      ? overview()
-      : tab === "notes"
-        ? `<div class="panel-label">RESEARCH NOTES / 研究记录</div><ol class="research-notes">${r.findings.map((f, i) => `<li><span>${String(i + 1).padStart(2, "0")}</span>${escapeHtml(f)}</li>`).join("")}</ol>`
-        : `<div class="panel-label">ACCESS LOG / 本次访问</div>${accessLog
-            .filter((entry) => entry.id === r.id)
-            .slice(0, 4)
-            .map(
-              (entry) =>
-                `<div class="log-row"><span>${entry.time}</span><span>JOYCE MOORE</span><b>READ AUTHORIZED</b></div>`,
-            )
-            .join(
-              "",
-            )}<p class="log-note">本次会话已通过身份验证。档案内容以当前终端可访问范围展示。</p>`;
-  $("#tab-panel").scrollTop = 0;
-  documentDecryption.refresh();
-  if (animate) {
-    tabTransition.reveal($("#tab-panel"), !motionActive("surfaceTransitions"));
-  }
+  $("#detail-content").inert = false;
+  $("#detail-content").scrollTop = 0;
 }
 function notify(message: string) {
   clearTimeout(toastTimer);
@@ -422,10 +360,6 @@ document.addEventListener("click", (e) => {
   if (!el) return;
   if (el.dataset.select) {
     select(Number(el.dataset.select));
-    return;
-  }
-  if (el.dataset.tab) {
-    setTab(el.dataset.tab);
     return;
   }
   const action = el.dataset.action;
@@ -447,19 +381,7 @@ document.addEventListener("keydown", (e) => {
     }
     return;
   }
-  if (typing || !ready) return;
-  if (
-    (e.target as HTMLElement).dataset.tab &&
-    ["ArrowLeft", "ArrowRight"].includes(e.key)
-  ) {
-    e.preventDefault();
-    const tabs = ["overview", "notes", "history"];
-    setTab(
-      tabs[(tabs.indexOf(activeTab) + (e.key === "ArrowRight" ? 1 : 2)) % 3],
-    );
-    $<HTMLButtonElement>(`[data-tab="${activeTab}"]`).focus();
-    return;
-  }
+  if (typing || !ready || mode !== "archive") return;
   if (e.key === "ArrowLeft") {
     e.preventDefault();
     stepColumn(-1);
@@ -487,12 +409,6 @@ document.addEventListener("keydown", (e) => {
 });
 
 const inspectionOverlay = new InspectionOverlay();
-const documentDecryption = new DocumentDecryption();
-// A newly opened archive can introduce another font shard. Re-measure its
-// redaction lines after font swap while retaining the current reveal progress.
-document.fonts.addEventListener("loadingdone", () =>
-  documentDecryption.refresh(),
-);
 
 let lastTime = 0,
   frameCount = 0,
@@ -505,24 +421,9 @@ function frame(ms: number) {
   }
   const time = ms / 1000;
   scene?.update(time);
-  if (scene && mode === "detail") {
-    documentDecryption.update(
-      time,
-      scene.decryptionFrame,
-      !motionActive("documentReveal"),
-    );
-    $("#detail-content").style.opacity = String(scene.detailVisibility);
-    $("#detail-content").style.translate =
-      `0 ${(1 - scene.detailVisibility) * 18}px`;
-    $("#detail-content").inert = scene.detailVisibility < 0.1;
-    if (pendingDetailFocus && scene.detailVisibility >= 0.1) {
-      $("#detail-content").focus({ preventScroll: true });
-      pendingDetailFocus = false;
-    }
-  }
   $("#stage").style.setProperty(
     "--detail-shade",
-    String(scene?.detailVisibility ?? 0),
+    String(mode === "detail" ? 1 : scene?.detailVisibility ?? 0),
   );
   const currentScene = scene;
   if (currentScene)
@@ -598,7 +499,7 @@ async function start() {
       scene.load(),
       document.fonts.load(
         "400 20px MiSans",
-        "内部资料档案编号保密级别商业区选择档案：0123456789 JOYCE MOORE",
+        `个人信息档案姓名专业学校意向岗位：0123456789 ${records[0].name}`,
       ),
     ]);
     bindScene(scene);
@@ -629,8 +530,12 @@ updateSelection();
 void start();
 enableGamepad();
 const ARCHIVE_HINT: Record<"keyboard" | "gamepad", string> = {
-  keyboard: `<kbd>←</kbd> <kbd>→</kbd> 切换列 <span>／</span> <kbd>↑</kbd> <kbd>↓</kbd> 前后档案 <span>／</span> <kbd>ENTER</kbd> 读取`,
-  gamepad: `<kbd>LS</kbd> <kbd>DP</kbd> 切换列 / 前后档案 <span>／</span> <kbd>A</kbd> 读取`,
+  keyboard: records.length === 1
+    ? `<kbd>ENTER</kbd> 读取档案`
+    : `<kbd>←</kbd> <kbd>→</kbd> 切换分类 <span>／</span> <kbd>↑</kbd> <kbd>↓</kbd> 前后档案 <span>／</span> <kbd>ENTER</kbd> 读取`,
+  gamepad: records.length === 1
+    ? `<kbd>A</kbd> 读取档案`
+    : `<kbd>LS</kbd> <kbd>DP</kbd> 切换分类 / 前后档案 <span>／</span> <kbd>A</kbd> 读取`,
 };
 onInputDevice((device) => {
   const hint = document.querySelector(".archive-hint");
@@ -654,6 +559,8 @@ Object.assign(window, {
       baseQuality: "original",
       rendering: effectiveRenderQuality(),
       selected: records[selected].id,
+      recordCount: records.length,
+      categoryCount: archiveColumns.length,
     }),
   },
 });

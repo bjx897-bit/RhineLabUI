@@ -21,7 +21,10 @@ import { applyTextureQuality, resizeQuality } from "./quality-renderer";
 import { CardAppearance } from "./appearance";
 import { configureInternalOptics } from "./internal-optics";
 import { DecryptionController } from "./decryption";
-import { fileAtSlot, fileLocation } from "./data";
+import {
+  archiveColumns, columnAtLane, columnFiles,
+  fileAtSlot, physicalFileLocation, records,
+} from "./data";
 import {
   cellKey,
   sameCell,
@@ -194,13 +197,15 @@ export class ArchiveScene {
   private raycaster = new THREE.Raycaster();
   private dummy = new THREE.Object3D();
   private cells: ArchiveCell[] = [];
-  private selectedCell: ArchiveCell = { lane: 2, row: 12 };
+  private selectedCell: ArchiveCell = {
+    lane: physicalFileLocation(0).lane, row: physicalFileLocation(0).row,
+  };
   private looping = false;
   private coordinateOrigin: ArchiveCell = { lane: 0, row: 0 };
   private lift = { value: 0, velocity: 0 };
   private rail = { value: 0, velocity: 0 };
-  private shoulder = { value: 12, velocity: 0 };
-  private laneFocus = { value: 2, velocity: 0 };
+  private shoulder = { value: this.selectedCell.row, velocity: 0 };
+  private laneFocus = { value: this.selectedCell.lane, velocity: 0 };
   private columnCamera = { value: 0, velocity: 0 };
   private returnY: number | null = null;
   private clearance = 0;
@@ -220,7 +225,7 @@ export class ArchiveScene {
   }[] = [];
   private pulses: { row: number; lane: number; time: number }[] = [];
   private pendingPulse: ArchiveCell | null = null;
-  private selectedSlot = 76;
+  private selectedSlot = physicalFileLocation(0).slot;
   private detail = 0;
   private targetDetail = 0;
   private reveal = 0;
@@ -287,7 +292,9 @@ export class ArchiveScene {
     this.renderer.toneMappingExposure = 1.05;
     this.renderer.domElement.setAttribute(
       "aria-label",
-      "三维研究档案阵列，点击选择，左右拖动切列，上下拖动或滚轮切换列内档案",
+      records.length === 1
+        ? "三维档案展示背景，请通过读取档案按钮查看个人信息"
+        : "三维档案阵列，点击选择，左右拖动切列，上下拖动或滚轮切换列内档案",
     );
     container.appendChild(this.renderer.domElement);
     this.renderer.domElement.addEventListener('webglcontextrestored', () => {
@@ -599,7 +606,7 @@ export class ArchiveScene {
     if (mode !== "archive") this.pendingPulse = null;
     this.looping = mode !== "hidden";
     if (!this.looping) {
-      const canonical = fileLocation(fileAtSlot(this.selectedSlot));
+      const canonical = physicalFileLocation(fileAtSlot(this.selectedSlot));
       this.selectedCell = { lane: canonical.lane, row: canonical.row };
       this.coordinateOrigin = { lane: 0, row: 0 };
       for (const old of this.outgoing) {
@@ -692,14 +699,16 @@ export class ArchiveScene {
   private rebaseCoordinates() {
     // Periodically reduce the logical coordinates while preserving every
     // relative position, spring velocity, ripple and idle phase.
+    const lanePeriod = archiveColumns.length;
+    const rowPeriod = columnFiles(columnAtLane(this.selectedCell.lane)).length;
     const shift = {
       lane:
         Math.abs(this.selectedCell.lane) > 2048
-          ? Math.round((this.selectedCell.lane - 2) / 5) * 5
+          ? Math.round((this.selectedCell.lane - 2) / lanePeriod) * lanePeriod
           : 0,
       row:
         Math.abs(this.selectedCell.row) > 2048
-          ? Math.floor((this.selectedCell.row - 12) / 8) * 8
+          ? Math.floor((this.selectedCell.row - 12) / rowPeriod) * rowPeriod
           : 0,
     };
     if (!shift.lane && !shift.row) return;
@@ -730,8 +739,8 @@ export class ArchiveScene {
     if (!this.navigatingDrag) this.cancelPointer();
     this.setHover(null);
     this.lastInteraction = this.clock;
-    const next = fileLocation(index).slot;
-    const canonical = fileLocation(index);
+    const canonical = physicalFileLocation(index);
+    const next = canonical.slot;
     const cell = this.looping
       ? selectionCell(index, this.selectedCell, navigation)
       : { lane: canonical.lane, row: canonical.row };
@@ -883,6 +892,7 @@ export class ArchiveScene {
   }
   private canBrowse() {
     return (
+      records.length > 1 &&
       this.presenceTarget === 1 &&
       this.looping &&
       !this.targetDetail &&

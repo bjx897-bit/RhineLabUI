@@ -45,10 +45,23 @@ const removed = [
   '[data-action="restart"]',
   '[data-action="model-viewer"]',
   ".viewer-modal",
+  '[role="tablist"]',
+  '[role="tab"]',
+  '[role="tabpanel"]',
+  "#tab-panel",
+  ".document-redacted",
+  ".document-redaction-window",
+  ".document-redaction-ink",
   "audio",
   "video",
 ].join(", ");
 const checks = [];
+const profileFields = [
+  ["姓名", "张三"],
+  ["专业", "计算机科学与技术"],
+  ["学校", "示例大学"],
+  ["意向岗位", "前端开发工程师"],
+];
 let skippedMainSceneDraws = 0;
 async function capture(page, name) {
   if (!captureEnabled) return;
@@ -318,7 +331,22 @@ try {
     assert.equal(stats.superPerformance, true);
     assert.equal(stats.baseQuality, "original");
     assert.equal(stats.postprocessing, false);
-    assert.ok(stats.archiveCount > 40, "archive scene is populated");
+    assert.ok(stats.archiveCount > 0, "decorative archive scene is populated");
+    assert.equal(stats.selected, "X-001");
+    assert.equal(await page.locator(".count-total").innerText(), "01");
+    assert.equal(await page.locator("#file-ticks button").count(), 1);
+    assert.match(
+      await page.locator("#column-number").innerText(),
+      /\/\s*01\s*$/,
+    );
+    assert.equal(
+      await page.locator("#archive-category .rn-value").textContent(),
+      "个人信息",
+    );
+    assert.equal(
+      await page.locator("#column-name .rn-value").textContent(),
+      "个人信息",
+    );
     const metrics = await page
       .locator("#three-scene")
       .evaluate((el) => JSON.parse(el.dataset.renderQuality));
@@ -345,68 +373,99 @@ try {
         ? "Legacy bookmarks/settings and old entry queries cannot restore removed features"
         : "Direct archive entry has no brand heading, search or bookmark controls",
     );
+    const initial = stats.selected;
+    for (const key of ["ArrowDown", "ArrowUp", "ArrowRight", "ArrowLeft"]) {
+      await page.keyboard.press(key);
+      assert.equal(await page.evaluate(() => rhine.stats().selected), initial);
+    }
+    for (const selector of [
+      '[data-action="prev"]',
+      '[data-action="next"]',
+      '[data-action="column-prev"]',
+      '[data-action="column-next"]',
+      "#file-ticks button",
+    ]) {
+      await page.locator(selector).evaluate((button) => button.click());
+      assert.equal(await page.evaluate(() => rhine.stats().selected), initial);
+    }
+    if (!legacy) await capture(page, "archive-desktop");
+    // One browser task: verify opening exposes the whole document synchronously,
+    // before an animation frame or model decryption can reveal it later.
+    const opened = await page.evaluate(() => {
+      document.querySelector(".read-file").click();
+      const content = document.querySelector("#detail-content");
+      const detail = document.querySelector("#detail-ui");
+      const fields = content.querySelector(".profile-fields");
+      return {
+        mode: rhine.stats().mode,
+        hidden: detail.hidden,
+        surfaceOpacity: getComputedStyle(detail).opacity,
+        opacity: getComputedStyle(content).opacity,
+        inert: content.inert || detail.inert,
+        fieldTag: fields?.tagName,
+        labels: Array.from(fields?.querySelectorAll("dt") ?? [], (el) =>
+          el.textContent.trim(),
+        ),
+        values: Array.from(fields?.querySelectorAll("dd") ?? [], (el) =>
+          el.textContent.trim(),
+        ),
+      };
+    });
+    assert.deepEqual(opened, {
+      mode: "detail",
+      hidden: false,
+      surfaceOpacity: "1",
+      opacity: "1",
+      inert: false,
+      fieldTag: "DL",
+      labels: profileFields.map(([label]) => label),
+      values: profileFields.map(([, value]) => value),
+    });
+    assert.equal(await page.locator(removed).count(), 0);
+    await checkRemovedShortcuts(page);
+    checks.push(
+      `${legacy ? "Normal" : "Reduced"} motion: one personal file; all four fields appear immediately without tabs or document decryption`,
+    );
     if (!legacy) {
-      await capture(page, "archive-desktop");
-      const initial = stats.selected;
-      await page.keyboard.press("ArrowDown");
-      assert.notEqual(
-        await page.evaluate(() => rhine.stats().selected),
-        initial,
-      );
-      await page.keyboard.press("ArrowUp");
-      assert.equal(await page.evaluate(() => rhine.stats().selected), initial);
-      await page.keyboard.press("ArrowRight");
-      assert.notEqual(
-        await page.evaluate(() => rhine.stats().selected),
-        initial,
-      );
-      await page.keyboard.press("ArrowLeft");
-      assert.equal(await page.evaluate(() => rhine.stats().selected), initial);
-      await page.locator(".read-file").click();
-      await page.waitForFunction(
-        () =>
-          rhine.stats().mode === "detail" &&
-          !document.querySelector("#detail-content").inert,
-      );
-      assert.equal(await page.locator(removed).count(), 0);
-      await checkRemovedShortcuts(page);
       await checkDetailDisplayOnly(page);
       checks.push(
         "Detail extraction reaches display state; mouse/touch drag and wheel cannot rotate, move the camera or change selection",
       );
-      await page.locator('[data-tab="notes"]').click();
-      assert.ok((await page.locator(".research-notes li").count()) > 0);
       const [download] = await Promise.all([
         page.waitForEvent("download"),
         page.locator(".export-button").click(),
       ]);
       assert.equal(download.suggestedFilename(), `RHINE-LAB-${initial}.txt`);
       const content = await readFile(await download.path(), "utf8");
-      assert.ok(content.includes("莱茵生命"));
-      await capture(page, "detail-desktop");
-      await page.keyboard.press("Escape");
-      assert.equal(await page.evaluate(() => rhine.stats().mode), "archive");
-      await page.waitForFunction(() => {
-        const stats = rhine.stats();
-        return (
-          stats.cameraDetail <= 0.001 &&
-          stats.extraction <= 0.401 &&
-          document.querySelector("#three-scene").dataset.inspection ===
-            "preview"
-        );
-      });
-      assert.equal(await page.evaluate(() => rhine.stats().selected), initial);
-      assert.notEqual(
-        await page
-          .locator("#three-scene canvas")
-          .evaluate((canvas) => getComputedStyle(canvas).pointerEvents),
-        "none",
+      for (const [label, value] of profileFields)
+        assert.match(content, new RegExp(`${label}[：:]\\s*${value}`));
+      assert.doesNotMatch(
+        content,
+        /研究记录|访问日志|莱茵生命|Kristen|Saria|设定参考|编目范围|总辖构件科/,
       );
-      assert.equal(await page.locator("canvas").count(), 1);
+      await capture(page, "detail-desktop");
       checks.push(
-        "File/column navigation, detail tabs, Escape return and TXT export remain available",
+        "TXT export contains the four personal fields and no previous research content",
       );
     }
+    await page.keyboard.press("Escape");
+    assert.equal(await page.evaluate(() => rhine.stats().mode), "archive");
+    await page.waitForFunction(() => {
+      const stats = rhine.stats();
+      return (
+        stats.cameraDetail <= 0.001 &&
+        stats.extraction <= 0.401 &&
+        document.querySelector("#three-scene").dataset.inspection === "preview"
+      );
+    });
+    assert.equal(await page.evaluate(() => rhine.stats().selected), initial);
+    assert.notEqual(
+      await page
+        .locator("#three-scene canvas")
+        .evaluate((canvas) => getComputedStyle(canvas).pointerEvents),
+      "none",
+    );
+    assert.equal(await page.locator("canvas").count(), 1);
     await page.waitForTimeout(2000);
     assert.deepEqual(
       requests.filter((url) =>

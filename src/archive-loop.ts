@@ -1,4 +1,6 @@
-import { archiveColumns, columnFiles, fileLocation } from "./data.ts";
+import {
+  archiveColumns, columnAtLane, columnFiles, physicalFileLocation, records,
+} from "./data.ts";
 
 export type ArchiveCell = { lane: number; row: number };
 export type ArchiveNavigation =
@@ -25,7 +27,7 @@ export function nearestOccurrence(
 }
 
 export function fileAtCell({ lane, row }: ArchiveCell) {
-  const files = columnFiles(wrap(lane, archiveColumns.length));
+  const files = columnFiles(columnAtLane(lane));
   return files[wrap(row - 12, files.length)];
 }
 
@@ -34,12 +36,14 @@ export function selectionCell(
   current: ArchiveCell,
   navigation?: ArchiveNavigation,
 ): ArchiveCell {
+  const next = physicalFileLocation(index);
+  // Repeated meshes are scenery, not additional documents to navigate to.
+  if (records.length === 1) return { lane: next.lane, row: next.row };
   if (navigation && "cell" in navigation) return { ...navigation.cell };
-  const next = fileLocation(index);
   const row = nearestOccurrence(
     next.row,
     current.row,
-    columnFiles(next.lane).length,
+    columnFiles(columnAtLane(next.lane)).length,
   );
   if (navigation?.axis === "row") {
     return { lane: current.lane, row: current.row + navigation.direction };
