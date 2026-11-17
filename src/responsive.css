@@ -52,7 +52,7 @@
 :is([data-layout="compact"], [data-layout="portrait"]) .object-caption { left: var(--edge); bottom: 55px; }
 :is([data-layout="compact"], [data-layout="portrait"]) .object-caption > span { font-size: 20px; }
 :is([data-layout="compact"], [data-layout="portrait"]) .object-caption > div { font-size: 8px; }
-:is([data-layout="compact"], [data-layout="portrait"]) .projection-panel { inset: 54px var(--edge) calc(var(--bottom-edge) + 40px) 34%; }
+:is([data-layout="compact"], [data-layout="portrait"]) .detail-screen { inset: 54px var(--edge) calc(var(--bottom-edge) + 40px) 34%; }
 :is([data-layout="compact"], [data-layout="portrait"]) .detail-content { padding: 20px; }
 :is([data-layout="compact"], [data-layout="portrait"]) .detail-kicker { font-size: 9px; gap: 8px; flex-wrap: wrap; }
 :is([data-layout="compact"], [data-layout="portrait"]) .detail-content h2 { font-size: 27px; margin: 14px 0 8px; letter-spacing: -.6px; overflow-wrap: anywhere; }
@@ -74,7 +74,7 @@
 [data-layout="portrait"] .file-ticks button { width: 27px; }
 [data-layout="portrait"] .file-ticks button:before { left: 12px; }
 [data-layout="portrait"] .back-button { top: 77px; }
-[data-layout="portrait"] .projection-panel { inset: 38% var(--edge) calc(var(--bottom-edge) + 40px); }
+[data-layout="portrait"] .detail-screen { inset: 38% var(--edge) calc(var(--bottom-edge) + 40px); }
 [data-layout="portrait"] .object-caption { left: var(--edge); right: var(--edge); bottom: calc(62% + 12px); display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 [data-layout="portrait"] .object-caption > div { display: none; }
 [data-layout="portrait"] .object-caption > span { font-size: 15px; }

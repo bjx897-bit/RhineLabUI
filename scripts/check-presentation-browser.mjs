@@ -45,6 +45,10 @@ const removed = [
   '[data-action="restart"]',
   '[data-action="model-viewer"]',
   ".viewer-modal",
+  "#detail-projection",
+  ".projection-ray",
+  ".projection-beam",
+  "#projection-panel",
   '[role="tablist"]',
   '[role="tab"]',
   '[role="tabpanel"]',
@@ -199,19 +203,18 @@ async function checkDetailDisplayOnly(page) {
       );
   }
 }
-async function openProjection(page) {
+async function openDetailScreen(page) {
   const opening = await page.evaluate(() => {
     document.querySelector(".read-file").click();
-    const panel = document.querySelector("#projection-panel");
-    const projection = document.querySelector("#detail-projection");
+    const screen = document.querySelector("#detail-screen");
     const download = document.querySelector(".export-button");
     download.focus();
     return {
       mode: rhine.stats().mode,
-      visible: rhine.stats().projectionVisible,
-      hidden: panel.hidden,
-      inert: panel.inert,
-      projectionHidden: projection.hasAttribute("hidden"),
+      visible: rhine.stats().detailVisible,
+      state: rhine.stats().screenState,
+      hidden: screen.hidden,
+      inert: screen.inert,
       exportFocused: document.activeElement === download,
       backAvailable:
         !document.querySelector("#detail-ui").inert &&
@@ -221,87 +224,49 @@ async function openProjection(page) {
   assert.deepEqual(opening, {
     mode: "detail",
     visible: false,
+    state: "closed",
     hidden: true,
     inert: true,
-    projectionHidden: true,
     exportFocused: false,
     backAvailable: true,
   });
 }
 
-async function checkProjectionFill(page) {
-  // At this desktop framing two side faces overlap here, outside the model
-  // and panel. A combined path used to cancel their winding and leave a hole.
-  assert.ok(
-    await page.locator(".projection-beam").evaluateAll((faces) =>
-      faces.some((face) => face.isPointInFill(new DOMPoint(500, 200))),
-    ),
-    "the exposed projection volume remains painted where side faces overlap",
-  );
-}
-
-async function checkProjectionRays(page) {
-  const rays = await page
-    .locator("#detail-projection line.projection-ray")
-    .evaluateAll((lines) =>
-      lines.map((line) => ({
-        corner: line.dataset.corner,
-        coordinates: ["x1", "y1", "x2", "y2"].map((name) =>
-          Number(line.getAttribute(name) ?? NaN),
-        ),
-      })),
-    );
+async function checkScreenClosed(page) {
   assert.deepEqual(
-    rays.map(({ corner }) => corner),
-    ["top-left", "top-right", "bottom-right", "bottom-left"],
-  );
-  rays.forEach(({ coordinates }) =>
-    assert.ok(coordinates.every(Number.isFinite)),
-  );
-  assert.equal(
-    new Set(rays.map(({ coordinates }) => coordinates.slice(0, 2).join(",")))
-      .size,
-    4,
-    "four distinct model corners",
-  );
-  assert.equal(
-    new Set(rays.map(({ coordinates }) => coordinates.slice(2).join(","))).size,
-    4,
-    "four distinct panel corners",
-  );
-  assert.equal(
-    await page.locator("#detail-projection circle, .projection-source").count(),
-    0,
-  );
-  const targets = await page.evaluate(() => {
-    const panel = document
-      .querySelector("#projection-panel")
-      .getBoundingClientRect();
-    const inverse = document
-      .querySelector("#detail-projection")
-      .getScreenCTM()
-      .inverse();
-    return [
-      [panel.left, panel.top],
-      [panel.right, panel.top],
-      [panel.right, panel.bottom],
-      [panel.left, panel.bottom],
-    ].map(([x, y]) => {
-      const point = new DOMPoint(x, y).matrixTransform(inverse);
-      return [point.x, point.y];
-    });
-  });
-  rays.forEach(({ corner, coordinates }, index) =>
-    targets[index].forEach((value, axis) =>
-      assert.ok(
-        Math.abs(coordinates[axis + 2] - value) <= 1,
-        `${corner} ray reaches its panel corner`,
-      ),
-    ),
+    await page.locator("#detail-screen").evaluate((screen) => ({
+      visible: rhine.stats().detailVisible,
+      state: rhine.stats().screenState,
+      hidden: screen.hidden,
+      inert: screen.inert,
+      animations: screen.getAnimations({ subtree: true }).length,
+    })),
+    {
+      visible: false,
+      state: "closed",
+      hidden: true,
+      inert: true,
+      animations: 0,
+    },
   );
 }
 
-async function checkProjectionResize(page) {
+async function checkProfileExport(page) {
+  const [download] = await Promise.all([
+    page.waitForEvent("download"),
+    page.locator(".export-button").click(),
+  ]);
+  assert.equal(download.suggestedFilename(), "RHINE-LAB-X-001.txt");
+  const content = await readFile(await download.path(), "utf8");
+  for (const [label, value] of profileFields)
+    assert.match(content, new RegExp(`${label}[：:]\\s*${value}`));
+  assert.doesNotMatch(
+    content,
+    /研究记录|访问日志|莱茵生命|Kristen|Saria|设定参考|编目范围|总辖构件科/,
+  );
+}
+
+async function checkScreenResize(page) {
   for (const [width, height, layout] of [
     [390, 844, "portrait"],
     [844, 390, "compact"],
@@ -312,17 +277,40 @@ async function checkProjectionResize(page) {
       (kind) => document.querySelector("#stage").dataset.layout === kind,
       layout,
     );
-    // Allow the scene update and any short reduced-motion transitions to finish.
-    // A cached pre-resize panel rectangle must not survive into these frames.
     await page.evaluate(
       () =>
         new Promise((resolve) =>
           requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
         ),
     );
-    await checkProjectionRays(page);
+    const bounds = await page.locator("#detail-screen").evaluate((screen) => {
+      const rect = screen.getBoundingClientRect();
+      return {
+        x: rect.x,
+        y: rect.y,
+        right: rect.right,
+        bottom: rect.bottom,
+        width: rect.width,
+        height: rect.height,
+        state: screen.dataset.screenState,
+      };
+    });
+    assert.equal(bounds.state, "open");
+    assert.ok(
+      bounds.width > 120 && bounds.height > 80,
+      `${layout}: readable screen area`,
+    );
+    assert.ok(
+      bounds.x >= -1 &&
+        bounds.y >= -1 &&
+        bounds.right <= width + 1 &&
+        bounds.bottom <= height + 1,
+      `${layout}: screen stays within viewport`,
+    );
+    await checkProfileExport(page);
   }
 }
+
 try {
   for (const legacy of [false, true]) {
     const context = await browser.newContext({
@@ -514,25 +502,36 @@ try {
     }
     if (!legacy) await capture(page, "archive-desktop");
     await page.evaluate(() => {
-      window.projectionSamples = [];
-      window.projectionSampleTimer = setInterval(() => {
+      const screen = document.querySelector("#detail-screen");
+      window.screenSamples = [];
+      window.screenTransitions = [
+        { state: screen.dataset.screenState, at: performance.now() },
+      ];
+      const recordTransition = () => {
+        const state = screen.dataset.screenState;
+        if (window.screenTransitions.at(-1).state !== state)
+          window.screenTransitions.push({ state, at: performance.now() });
+      };
+      window.screenObserver = new MutationObserver(recordTransition);
+      window.screenObserver.observe(screen, {
+        attributes: true,
+        attributeFilter: ["data-screen-state"],
+      });
+      window.screenSampleTimer = setInterval(() => {
         const stats = rhine.stats();
-        const panel = document.querySelector("#projection-panel");
-        window.projectionSamples.push({
+        window.screenSamples.push({
           mode: stats.mode,
           ready: stats.presentationReady,
           extraction: stats.extraction,
           cameraDetail: stats.cameraDetail,
-          visible: stats.projectionVisible,
-          hidden: panel.hidden,
-          inert: panel.inert,
-          projectionHidden: document
-            .querySelector("#detail-projection")
-            .hasAttribute("hidden"),
+          visible: stats.detailVisible,
+          state: stats.screenState,
+          hidden: screen.hidden,
+          inert: screen.inert,
         });
       }, 25);
     });
-    await openProjection(page);
+    await openDetailScreen(page);
     if (legacy) {
       await page.waitForFunction(
         () =>
@@ -540,57 +539,68 @@ try {
       );
       await page.keyboard.press("Escape");
       assert.equal(await page.evaluate(() => rhine.stats().mode), "archive");
-      assert.equal(
-        await page
-          .locator("#projection-panel")
-          .evaluate((panel) => panel.hidden && panel.inert),
-        true,
+      await checkScreenClosed(page);
+      await openDetailScreen(page);
+      await page.waitForFunction(
+        () => rhine.stats().screenState === "opening",
+        null,
+        { polling: 10 },
       );
-      await openProjection(page);
+      const opening = await page
+        .locator("#detail-screen")
+        .evaluate((screen) => {
+          const download = screen.querySelector(".export-button");
+          download.focus();
+          const animations = screen.getAnimations({ subtree: true });
+          return {
+            visible: rhine.stats().detailVisible,
+            hidden: screen.hidden,
+            inert: screen.inert,
+            exportFocused: document.activeElement === download,
+            durations: animations.map(
+              (animation) => animation.effect.getTiming().duration,
+            ),
+            expands: animations.some((animation) =>
+              animation.effect
+                .getKeyframes()
+                .some((frame) => frame.clipPath && frame.clipPath !== "none"),
+            ),
+          };
+        });
+      assert.ok(
+        opening.visible &&
+          !opening.hidden &&
+          opening.inert &&
+          !opening.exportFocused,
+      );
+      assert.ok(
+        opening.expands && opening.durations.includes(480),
+        "480ms clipped screen expansion is active",
+      );
+      await page.keyboard.press("Escape");
+      await checkScreenClosed(page);
+      await openDetailScreen(page);
     }
     await page.waitForFunction(
-      () => rhine.stats().presentationReady && rhine.stats().projectionVisible,
+      () =>
+        rhine.stats().presentationReady && rhine.stats().screenState === "open",
+      null,
+      { polling: 10 },
     );
-    const samples = await page.evaluate(() => {
-      clearInterval(window.projectionSampleTimer);
-      return window.projectionSamples;
-    });
-    if (legacy)
-      assert.ok(
-        samples.some((sample) => sample.mode === "detail" && !sample.ready),
-        "normal motion has an extraction phase",
-      );
-    for (const sample of samples) {
-      if (!sample.visible || sample.mode !== "detail" || !sample.ready)
-        assert.ok(
-          !sample.visible &&
-            sample.hidden &&
-            sample.inert &&
-            sample.projectionHidden,
-          "projection stays hidden before extraction completes, including cancellation/reopening",
-        );
-      if (sample.visible)
-        assert.ok(
-          sample.ready &&
-            sample.mode === "detail" &&
-            Math.abs(sample.extraction - 4.05) <= 0.011 &&
-            sample.cameraDetail >= 0.995 &&
-            !sample.hidden &&
-            !sample.inert &&
-            !sample.projectionHidden,
-        );
-    }
     const opened = await page.evaluate(() => {
       const content = document.querySelector("#detail-content");
       const detail = document.querySelector("#detail-ui");
-      const panel = document.querySelector("#projection-panel");
+      const panel = document.querySelector("#detail-screen");
       const fields = content.querySelector(".profile-fields");
       return {
         mode: rhine.stats().mode,
         hidden: panel.hidden,
-        projectionHidden: document
-          .querySelector("#detail-projection")
-          .hasAttribute("hidden"),
+        screenState: panel.dataset.screenState,
+        screenOpacity: getComputedStyle(panel).opacity,
+        clipPath: getComputedStyle(panel).clipPath,
+        startupOpacity: getComputedStyle(panel.querySelector(".screen-startup"))
+          .opacity,
+        animations: panel.getAnimations({ subtree: true }).length,
         surfaceOpacity: getComputedStyle(detail).opacity,
         opacity: getComputedStyle(content).opacity,
         inert: content.inert || panel.inert || detail.inert,
@@ -606,7 +616,11 @@ try {
     assert.deepEqual(opened, {
       mode: "detail",
       hidden: false,
-      projectionHidden: false,
+      screenState: "open",
+      screenOpacity: "1",
+      clipPath: "none",
+      startupOpacity: "0",
+      animations: 0,
       surfaceOpacity: "1",
       opacity: "1",
       inert: false,
@@ -615,52 +629,86 @@ try {
       values: profileFields.map(([, value]) => value),
     });
     assert.equal(await page.locator(removed).count(), 0);
-    await checkProjectionFill(page);
-    await checkProjectionRays(page);
     await checkRemovedShortcuts(page);
     checks.push(
-      `${legacy ? "Normal" : "Reduced"} motion: projection and full profile appear only after extraction, with four corner rays and no document decryption`,
+      `${legacy ? "Normal" : "Reduced"} motion: screen opens once after extraction and leaves the full profile unobscured`,
     );
     if (!legacy) {
       await checkDetailDisplayOnly(page);
       checks.push(
         "Detail extraction reaches display state; mouse/touch drag and wheel cannot rotate, move the camera or change selection",
       );
-      const [download] = await Promise.all([
-        page.waitForEvent("download"),
-        page.locator(".export-button").click(),
-      ]);
-      assert.equal(download.suggestedFilename(), `RHINE-LAB-${initial}.txt`);
-      const content = await readFile(await download.path(), "utf8");
-      for (const [label, value] of profileFields)
-        assert.match(content, new RegExp(`${label}[：:]\\s*${value}`));
-      assert.doesNotMatch(
-        content,
-        /研究记录|访问日志|莱茵生命|Kristen|Saria|设定参考|编目范围|总辖构件科/,
-      );
+      await checkProfileExport(page);
       await capture(page, "detail-desktop");
       checks.push(
         "TXT export contains the four personal fields and no previous research content",
       );
     }
-    await checkProjectionResize(page);
+    await checkScreenResize(page);
+    const observed = await page.evaluate(() => {
+      clearInterval(window.screenSampleTimer);
+      window.screenObserver.disconnect();
+      return {
+        samples: window.screenSamples,
+        transitions: window.screenTransitions,
+      };
+    });
+    if (legacy)
+      assert.ok(
+        observed.samples.some(
+          (sample) => sample.mode === "detail" && !sample.ready,
+        ),
+        "normal motion retains extraction before the screen opens",
+      );
+    for (const sample of observed.samples) {
+      if (!sample.ready || sample.mode !== "detail")
+        assert.ok(
+          !sample.visible &&
+            sample.hidden &&
+            sample.inert &&
+            sample.state === "closed",
+          "screen stays closed before extraction, including canceled/reopened attempts",
+        );
+      if (sample.visible) {
+        assert.ok(
+          sample.ready &&
+            sample.mode === "detail" &&
+            Math.abs(sample.extraction - 4.05) <= 0.011 &&
+            sample.cameraDetail >= 0.995 &&
+            !sample.hidden,
+        );
+        assert.equal(sample.inert, sample.state === "opening");
+      }
+    }
+    const openings = observed.transitions.filter(
+      ({ state }) => state === "opening",
+    );
+    const completed = observed.transitions.filter(
+      ({ state }) => state === "open",
+    );
+    assert.equal(
+      openings.length,
+      legacy ? 2 : 0,
+      "one opening per attempt; reduced motion and resizing never replay it",
+    );
+    assert.equal(
+      completed.length,
+      1,
+      "only the final uncanceled attempt completes",
+    );
+    if (legacy) {
+      const elapsed = completed[0].at - openings.at(-1).at;
+      assert.ok(
+        elapsed >= 350 && elapsed <= 1500,
+        `480ms opening completes without lingering (1500ms scheduling allowance): ${elapsed}ms`,
+      );
+    }
     checks.push(
-      `${legacy ? "Normal" : "Reduced"} motion: four projection endpoints follow portrait, landscape and desktop panel corners after resizing`,
+      `${legacy ? "Normal" : "Reduced"} motion: canceled openings leave no animation; portrait/landscape reading and TXT export work without replaying the startup`,
     );
     await page.keyboard.press("Escape");
     assert.equal(await page.evaluate(() => rhine.stats().mode), "archive");
-    assert.equal(
-      await page
-        .locator("#projection-panel")
-        .evaluate((panel) => panel.hidden && panel.inert),
-      true,
-    );
-    assert.equal(
-      await page
-        .locator("#detail-projection")
-        .evaluate((svg) => svg.hasAttribute("hidden")),
-      true,
-    );
+    await checkScreenClosed(page);
     await page.waitForFunction(() => {
       const stats = rhine.stats();
       return (
