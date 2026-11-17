@@ -6,10 +6,11 @@ const CORNERS = [
   { name: "bottom-right", x: 2.5, y: 0 },
   { name: "bottom-left", x: -2.5, y: 0 },
 ] as const;
+const SIDES = ["top", "right", "bottom", "left"] as const;
 
 /** Connect the model's four surface corners to a document in stage space. */
 export class DetailProjection {
-  private beam: SVGPathElement | null;
+  private beams: SVGPathElement[];
   private rays: SVGLineElement[];
   private targets: number[][] = [];
   private previous = "";
@@ -19,7 +20,11 @@ export class DetailProjection {
     private panel: HTMLElement,
     private svg: SVGSVGElement,
   ) {
-    this.beam = svg.querySelector(".projection-beam");
+    this.beams = SIDES.map((side) =>
+      svg.querySelector<SVGPathElement>(
+        `.projection-beam[data-side="${side}"]`,
+      )!,
+    );
     this.rays = CORNERS.map(({ name }) =>
       svg.querySelector<SVGLineElement>(
         `.projection-ray[data-corner="${name}"]`,
@@ -69,14 +74,14 @@ export class DetailProjection {
       ray.setAttribute("x2", x2);
       ray.setAttribute("y2", y2);
     });
-    this.beam?.setAttribute(
-      "d",
-      starts
-        .map((start, index) => {
-          const next = (index + 1) % CORNERS.length;
-          return `M${start.join(" ")} L${ends[index].join(" ")} L${ends[next].join(" ")} L${starts[next].join(" ")} Z`;
-        })
-        .join(" "),
-    );
+    // Separate faces must paint independently. Combining their oppositely
+    // wound subpaths cancels the light between the model and the document.
+    this.beams.forEach((beam, index) => {
+      const next = (index + 1) % CORNERS.length;
+      beam.setAttribute(
+        "d",
+        `M${starts[index].join(" ")} L${ends[index].join(" ")} L${ends[next].join(" ")} L${starts[next].join(" ")} Z`,
+      );
+    });
   }
 }

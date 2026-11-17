@@ -229,6 +229,17 @@ async function openProjection(page) {
   });
 }
 
+async function checkProjectionFill(page) {
+  // At this desktop framing two side faces overlap here, outside the model
+  // and panel. A combined path used to cancel their winding and leave a hole.
+  assert.ok(
+    await page.locator(".projection-beam").evaluateAll((faces) =>
+      faces.some((face) => face.isPointInFill(new DOMPoint(500, 200))),
+    ),
+    "the exposed projection volume remains painted where side faces overlap",
+  );
+}
+
 async function checkProjectionRays(page) {
   const rays = await page
     .locator("#detail-projection line.projection-ray")
@@ -288,6 +299,29 @@ async function checkProjectionRays(page) {
       ),
     ),
   );
+}
+
+async function checkProjectionResize(page) {
+  for (const [width, height, layout] of [
+    [390, 844, "portrait"],
+    [844, 390, "compact"],
+    [1280, 720, "desktop"],
+  ]) {
+    await page.setViewportSize({ width, height });
+    await page.waitForFunction(
+      (kind) => document.querySelector("#stage").dataset.layout === kind,
+      layout,
+    );
+    // Allow the scene update and any short reduced-motion transitions to finish.
+    // A cached pre-resize panel rectangle must not survive into these frames.
+    await page.evaluate(
+      () =>
+        new Promise((resolve) =>
+          requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+        ),
+    );
+    await checkProjectionRays(page);
+  }
 }
 try {
   for (const legacy of [false, true]) {
@@ -581,6 +615,7 @@ try {
       values: profileFields.map(([, value]) => value),
     });
     assert.equal(await page.locator(removed).count(), 0);
+    await checkProjectionFill(page);
     await checkProjectionRays(page);
     await checkRemovedShortcuts(page);
     checks.push(
@@ -608,6 +643,10 @@ try {
         "TXT export contains the four personal fields and no previous research content",
       );
     }
+    await checkProjectionResize(page);
+    checks.push(
+      `${legacy ? "Normal" : "Reduced"} motion: four projection endpoints follow portrait, landscape and desktop panel corners after resizing`,
+    );
     await page.keyboard.press("Escape");
     assert.equal(await page.evaluate(() => rhine.stats().mode), "archive");
     assert.equal(

@@ -45,7 +45,7 @@ $("#stage").innerHTML = `
     <div class="archive-hint"><kbd>ENTER</kbd> 读取档案</div>
   </section>
   <section id="detail-ui" class="detail-ui" aria-label="档案内容" hidden>
-    <svg id="detail-projection" class="detail-projection" aria-hidden="true" focusable="false" hidden><path class="projection-beam"/><line class="projection-ray" data-corner="top-left"/><line class="projection-ray" data-corner="top-right"/><line class="projection-ray" data-corner="bottom-right"/><line class="projection-ray" data-corner="bottom-left"/></svg>
+    <svg id="detail-projection" class="detail-projection" aria-hidden="true" focusable="false" hidden><path class="projection-beam" data-side="top"/><path class="projection-beam" data-side="right"/><path class="projection-beam" data-side="bottom"/><path class="projection-beam" data-side="left"/><line class="projection-ray" data-corner="top-left"/><line class="projection-ray" data-corner="top-right"/><line class="projection-ray" data-corner="bottom-right"/><line class="projection-ray" data-corner="bottom-left"/></svg>
     <button class="back-button" data-action="back">← <span>ARCHIVE OVERVIEW</span><small>ESC</small></button>
     <div class="object-caption"><span id="object-id">NO.001</span><div>INTERNAL DATABASE</div></div>
     <div id="projection-panel" class="projection-panel" hidden inert><article id="detail-content" class="detail-content"></article></div>
