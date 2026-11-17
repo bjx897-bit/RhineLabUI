@@ -12,7 +12,6 @@
 [data-layout="desktop"] .archive-navigation { left: 26.25%; }
 [data-layout="desktop"] .column-navigation { left: 52.34375%; }
 [data-layout="desktop"] .archive-hint { left: 26.302083%; }
-[data-layout="desktop"] .detail-content { left: 60.104167%; width: min(636px, 33.125%); max-height: calc(100% - 369px); overflow-y: auto; scrollbar-width: thin; }
 
 /* Compact controls use actual CSS pixels, independent of render resolution. */
 #stage:is([data-layout="compact"], [data-layout="portrait"]) {
@@ -53,7 +52,7 @@
 :is([data-layout="compact"], [data-layout="portrait"]) .object-caption { left: var(--edge); bottom: 55px; }
 :is([data-layout="compact"], [data-layout="portrait"]) .object-caption > span { font-size: 20px; }
 :is([data-layout="compact"], [data-layout="portrait"]) .object-caption > div { font-size: 8px; }
-:is([data-layout="compact"], [data-layout="portrait"]) .detail-content { left: 53%; top: 84px; width: calc(47% - var(--edge)); bottom: 53px; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; padding: 0 3px 12px 0; }
+:is([data-layout="compact"], [data-layout="portrait"]) .detail-content { bottom: calc(var(--bottom-edge) + 40px); padding: 84px var(--edge) 20px; }
 :is([data-layout="compact"], [data-layout="portrait"]) .detail-kicker { font-size: 9px; gap: 8px; flex-wrap: wrap; }
 :is([data-layout="compact"], [data-layout="portrait"]) .detail-content h2 { font-size: 27px; margin: 14px 0 8px; letter-spacing: -.6px; overflow-wrap: anywhere; }
 :is([data-layout="compact"], [data-layout="portrait"]) .detail-title-cn { font-size: 18px; gap: 10px; flex-wrap: wrap; }
@@ -66,7 +65,7 @@
 :is([data-layout="compact"], [data-layout="portrait"]) .export-button { width: 88px; font-size: 10px; }
 :is([data-layout="compact"], [data-layout="portrait"]) .detail-footnote { gap: 12px; line-height: 1.8; flex-wrap: wrap; }
 
-/* Portrait keeps the specimen above an independently scrollable document. */
+/* The document overlays the lower two thirds without reframing the specimen. */
 [data-layout="portrait"] .archive-callout { left: var(--edge); top: auto; bottom: 205px; width: calc(100% - 2 * var(--edge)); }
 [data-layout="portrait"] .archive-counter { bottom: 58px; }
 [data-layout="portrait"] .column-navigation { bottom: 58px; }
@@ -74,8 +73,9 @@
 [data-layout="portrait"] .file-ticks button { width: 27px; }
 [data-layout="portrait"] .file-ticks button:before { left: 12px; }
 [data-layout="portrait"] .back-button { top: 77px; }
-[data-layout="portrait"] .detail-content { left: var(--edge); right: var(--edge); width: auto; top: 54%; bottom: 40px; padding-top: 12px; border-top: 1px solid #aaa496; }
-[data-layout="portrait"] .object-caption { left: var(--edge); right: var(--edge); bottom: 46%; display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+[data-layout="portrait"] .detail-ui::before { inset: calc(100% / 3) 0 0; border-left: 0; border-top: 1px solid #c9c4ba; }
+[data-layout="portrait"] .detail-content { inset: calc(100% / 3) 0 calc(var(--bottom-edge) + 40px); padding-top: 24px; }
+[data-layout="portrait"] .object-caption { left: var(--edge); right: var(--edge); bottom: calc(200% / 3 + 12px); display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 [data-layout="portrait"] .object-caption > div { display: none; }
 [data-layout="portrait"] .object-caption > span { font-size: 15px; }
 [data-layout="portrait"] .archive-atmosphere::after { background: linear-gradient(180deg, transparent 28%, rgba(232,229,225,.2) 39%, rgba(232,229,225,.96) 51%, #e8e5e1 60%); }
@@ -92,7 +92,7 @@
   [data-layout="compact"] .archive-callout { top: 25%; }
   [data-layout="compact"] .eyebrow { display: none; }
   [data-layout="compact"] .back-button { top: 60px; }
-  [data-layout="compact"] .detail-content { top: 70px; bottom: 40px; }
+  [data-layout="compact"] .detail-content { padding-top: 60px; }
   [data-layout="compact"] .archive-navigation { left: 17%; bottom: 44px; }
   [data-layout="compact"] .column-navigation, [data-layout="compact"] .archive-counter { bottom: 44px; }
 }
